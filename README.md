@@ -151,7 +151,6 @@ See [docs/CREDENTIALS.md](docs/CREDENTIALS.md) for all test accounts.
 ## 📋 Prerequisites
 
 - **Node.js** (v14 or higher) - [Download](https://nodejs.org/)
-- **Python** (v3.7 or higher) - [Download](https://www.python.org/)
 - **MySQL** (v5.7 or higher) - [Download](https://dev.mysql.com/downloads/mysql/)
 
 ---
