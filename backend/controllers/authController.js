@@ -44,7 +44,7 @@ const login = async (req, res) => {
             });
         }
 
-        // Generate JWT token
+        // Generate JWT access token
         const token = jwt.sign(
             {
                 id: user.id,
@@ -55,12 +55,24 @@ const login = async (req, res) => {
             { expiresIn: jwtConfig.expiresIn }
         );
 
-        // Return token and user info
+        // Generate refresh token
+        const refreshToken = jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                role: user.role
+            },
+            jwtConfig.secret,
+            { expiresIn: jwtConfig.refreshExpiresIn }
+        );
+
+        // Return tokens and user info
         res.json({
             success: true,
             message: 'Login successful',
             data: {
                 token,
+                refreshToken,
                 user: {
                     id: user.id,
                     name: user.name,
@@ -137,4 +149,74 @@ const register = async (req, res) => {
     }
 };
 
-module.exports = { login, register };
+/**
+ * Refresh access token using refresh token
+ * POST /api/auth/refresh
+ */
+const refreshToken = async (req, res) => {
+    try {
+        const { refreshToken: token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({
+                success: false,
+                message: 'Refresh token is required'
+            });
+        }
+
+        // Verify refresh token
+        const decoded = jwt.verify(token, jwtConfig.secret);
+
+        // Optional: Find user to ensure they still exist (skip on database errors for resilience)
+        let user = { id: decoded.id, email: decoded.email, role: decoded.role };
+
+        try {
+            const [users] = await db.query(
+                'SELECT id, name, email, role FROM users WHERE id = ?',
+                [decoded.id]
+            );
+
+            if (users.length === 0) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'User not found'
+                });
+            }
+
+            user = users[0];
+        } catch (dbError) {
+            // If database is temporarily unavailable, allow refresh with token data
+            // This prevents logout during server restarts or database issues
+            console.warn('Database unavailable during token refresh, using token data:', dbError.message);
+        }
+
+        // Generate new access token
+        const newToken = jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                role: user.role
+            },
+            jwtConfig.secret,
+            { expiresIn: jwtConfig.expiresIn }
+        );
+
+        // Return new access token
+        res.json({
+            success: true,
+            message: 'Token refreshed successfully',
+            data: {
+                token: newToken
+            }
+        });
+
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        res.status(403).json({
+            success: false,
+            message: 'Invalid refresh token'
+        });
+    }
+};
+
+module.exports = { login, register, refreshToken };

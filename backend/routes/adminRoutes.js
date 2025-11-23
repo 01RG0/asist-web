@@ -12,6 +12,8 @@ const {
     updateSession,
     deleteSession,
     getAttendanceRecords,
+    recordAttendanceManually,
+    clearAttendance,
     getAllUsers,
     getUserById,
     createUser,
@@ -53,6 +55,8 @@ router.delete('/sessions/:id', deleteSession);
 
 // Attendance records
 router.get('/attendance', getAttendanceRecords);
+router.post('/attendance/manual', recordAttendanceManually);
+router.delete('/attendance/clear', clearAttendance);
 
 // Audit logs
 router.get('/audit-logs', getAuditLogs);

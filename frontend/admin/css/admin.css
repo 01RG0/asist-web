@@ -369,6 +369,12 @@ body {
     color: var(--accent-red);
 }
 
+/* Button sizes */
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+}
+
 /* Modals */
 .modal-overlay {
     position: fixed;

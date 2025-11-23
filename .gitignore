@@ -1,3 +1,6 @@
 /docs
 RECURRING_SESSIONS_COMPLETE.md
 RECURRING_SESSIONS_COMPLETE.md
+
+# Environment variables
+.env

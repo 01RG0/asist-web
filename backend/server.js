@@ -12,6 +12,7 @@ const sessionRoutes = require('./routes/sessionRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const centerRoutes = require('./routes/centerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const backupRoutes = require('./routes/backupRoutes');
 const logRoutes = require('./routes/logRoutes'); // new log endpoint
 
 const app = express();
@@ -40,6 +41,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/centers', centerRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/backups', backupRoutes);
 app.use('/api/log', logRoutes); // expose log endpoint
 
 /* ---------- Health check ---------- */

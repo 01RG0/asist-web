@@ -46,6 +46,7 @@ loginForm.addEventListener('submit', async (e) => {
         if (response.success) {
             // Save token and user data
             window.api.saveToken(response.data.token);
+            window.api.saveRefreshToken(response.data.refreshToken);
             window.api.saveUser(response.data.user);
 
             // Redirect to sessions page

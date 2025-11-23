@@ -108,6 +108,7 @@
                     }
 
                     window.api.saveToken(response.data.token);
+                    window.api.saveRefreshToken(response.data.refreshToken);
                     window.api.saveUser(response.data.user);
                     window.location.href = 'dashboard.html';
                 }

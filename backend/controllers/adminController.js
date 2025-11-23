@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const bcrypt = require('bcryptjs');
+const path = require('path');
 const { logAuditAction } = require('../utils/auditLogger');
 
 /**
@@ -512,19 +513,19 @@ const deleteSession = async (req, res) => {
  */
 const getAttendanceRecords = async (req, res) => {
     try {
-        const { start_date, end_date, center_id, assistant_id, subject } = req.query;
+        const { start_date, end_date, center_id, assistant_id, subject, page = 1, limit = 50 } = req.query;
 
         let query = `
-      SELECT a.id, a.time_recorded, a.delay_minutes,
-             u.name as assistant_name, c.name as center_name,
-             s.subject, s.start_time,
-             a.latitude, a.longitude
-      FROM attendance a
-      JOIN users u ON a.assistant_id = u.id
-      JOIN centers c ON a.center_id = c.id
-      JOIN sessions s ON a.session_id = s.id
-      WHERE 1=1
-    `;
+      SELECT a.id, a.time_recorded, a.delay_minutes, a.notes,
+               u.name as assistant_name, c.name as center_name,
+               s.subject, s.start_time,
+               a.latitude, a.longitude
+        FROM attendance a
+        JOIN users u ON a.assistant_id = u.id
+        JOIN centers c ON a.center_id = c.id
+        JOIN sessions s ON a.session_id = s.id
+        WHERE 1=1
+      `;
 
         const params = [];
 
@@ -553,13 +554,57 @@ const getAttendanceRecords = async (req, res) => {
             params.push(`%${subject}%`);
         }
 
-        query += ' ORDER BY a.time_recorded DESC LIMIT 500';
+        // Get total count for pagination
+        let countQuery = `
+      SELECT COUNT(*) as total
+        FROM attendance a
+        JOIN users u ON a.assistant_id = u.id
+        JOIN centers c ON a.center_id = c.id
+        JOIN sessions s ON a.session_id = s.id
+        WHERE 1=1
+      `;
+
+        const countParams = [...params]; // Copy params for count
+
+        if (start_date) {
+            countQuery += ' AND DATE(a.time_recorded) >= ?';
+        }
+
+        if (end_date) {
+            countQuery += ' AND DATE(a.time_recorded) <= ?';
+        }
+
+        if (center_id) {
+            countQuery += ' AND a.center_id = ?';
+        }
+
+        if (assistant_id) {
+            countQuery += ' AND a.assistant_id = ?';
+        }
+
+        if (subject) {
+            countQuery += ' AND s.subject LIKE ?';
+        }
+
+        const [countResult] = await db.query(countQuery, countParams);
+        const total = countResult[0].total;
+
+        // Add pagination
+        const offset = (page - 1) * limit;
+        query += ' ORDER BY a.time_recorded DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit), parseInt(offset));
 
         const [records] = await db.query(query, params);
 
         res.json({
             success: true,
-            data: records
+            data: records,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
         });
     } catch (error) {
         console.error('Get attendance records error:', error);
@@ -838,6 +883,127 @@ const changeUserPassword = async (req, res) => {
 };
 
 /**
+ * Manually record attendance for an assistant (admin only)
+ * POST /api/admin/attendance/manual
+ */
+const recordAttendanceManually = async (req, res) => {
+    try {
+        const { assistant_id, session_id, time_recorded, notes } = req.body;
+
+        // Validation
+        if (!assistant_id || !session_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Assistant ID and Session ID are required'
+            });
+        }
+
+        // Get session details
+        const [sessions] = await db.query(
+            `SELECT s.id, s.subject, s.center_id, s.start_time,
+                    c.name as center_name, c.latitude, c.longitude
+             FROM sessions s
+             JOIN centers c ON s.center_id = c.id
+             WHERE s.id = ?`,
+            [session_id]
+        );
+
+        if (sessions.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Session not found'
+            });
+        }
+
+        const session = sessions[0];
+
+        // Check if assistant exists and is an assistant
+        const [assistants] = await db.query(
+            'SELECT id, name FROM users WHERE id = ? AND role = ?',
+            [assistant_id, 'assistant']
+        );
+
+        if (assistants.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Assistant not found'
+            });
+        }
+
+        const assistant = assistants[0];
+
+        // Check if already attended
+        const [existingAttendance] = await db.query(
+            'SELECT id FROM attendance WHERE session_id = ? AND assistant_id = ?',
+            [session_id, assistant_id]
+        );
+
+        if (existingAttendance.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'Attendance already recorded for this assistant and session'
+            });
+        }
+
+        // Calculate delay (if time_recorded is provided, use it; otherwise use current time)
+        const recordTime = time_recorded ? new Date(time_recorded) : new Date();
+        const sessionDate = new Date(session.start_time);
+        const delayMs = recordTime - sessionDate;
+        const delayMinutes = Math.max(0, Math.floor(delayMs / 60000));
+
+        // Record attendance manually (using center's coordinates)
+        const [result] = await db.query(
+            `INSERT INTO attendance
+             (assistant_id, session_id, center_id, time_recorded, delay_minutes, notes, latitude, longitude)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                assistant_id,
+                session_id,
+                session.center_id,
+                recordTime,
+                delayMinutes,
+                notes || 'Manually recorded by admin',
+                session.latitude || 0,  // Use center's lat or 0 fallback
+                session.longitude || 0  // Use center's lng or 0 fallback
+            ]
+        );
+
+        // Log the action
+        await logAuditAction(req.user.id, 'MANUAL_ATTENDANCE_RECORD', {
+            attendance_id: result.insertId,
+            assistant_id,
+            assistant_name: assistant.name,
+            session_id,
+            subject: session.subject,
+            center_id: session.center_id,
+            delay_minutes: delayMinutes,
+            time_recorded: recordTime.toISOString(),
+            notes: notes || null
+        });
+
+        res.json({
+            success: true,
+            message: `Attendance manually recorded for ${assistant.name} - ${session.subject}`,
+            data: {
+                attendance_id: result.insertId,
+                assistant: assistant.name,
+                session: session.subject,
+                center: session.center_name,
+                time_recorded: recordTime.toISOString(),
+                delay_minutes: delayMinutes
+            }
+        });
+
+    } catch (error) {
+        console.error('Manual attendance recording error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error recording attendance manually'
+        });
+    }
+};
+
+/**
  * Get audit logs with filters
  * GET /api/admin/audit-logs
  */
@@ -893,6 +1059,89 @@ const getAuditLogs = async (req, res) => {
     }
 };
 
+/**
+ * Clear all attendance records with password verification and backup
+ * DELETE /api/admin/attendance/clear
+ */
+const clearAttendance = async (req, res) => {
+    try {
+        const { password } = req.body;
+
+        // Verify system password
+        if (!password || password !== 'admin123') {
+            return res.status(403).json({
+                success: false,
+                message: 'Invalid password'
+            });
+        }
+
+        // Create backup before clearing
+        const backupFilename = `attendance_backup_${new Date().toISOString().slice(0, 19).replace(/:/g, '').replace(/-/g, '').replace('T', '_')}.sql`;
+        const backupDir = path.join(__dirname, '..', 'database', 'backups');
+        const backupPath = path.join(backupDir, backupFilename);
+
+        // Get all attendance records for backup
+        const [records] = await db.query('SELECT * FROM attendance ORDER BY id');
+
+        if (records.length > 0) {
+            // Generate SQL INSERT statements
+            let sqlContent = `-- Attendance backup created on ${new Date().toISOString()}\n`;
+            sqlContent += `-- Total records: ${records.length}\n\n`;
+
+            records.forEach(record => {
+                const values = [
+                    record.id,
+                    record.assistant_id,
+                    record.session_id,
+                    record.center_id,
+                    record.latitude ? `'${record.latitude}'` : 'NULL',
+                    record.longitude ? `'${record.longitude}'` : 'NULL',
+                    `'${record.time_recorded.toISOString().slice(0, 19).replace('T', ' ')}'`,
+                    record.delay_minutes,
+                    record.notes ? `'${record.notes.replace(/'/g, "''")}'` : 'NULL'
+                ].join(', ');
+
+                sqlContent += `INSERT INTO attendance (id, assistant_id, session_id, center_id, latitude, longitude, time_recorded, delay_minutes, notes) VALUES (${values});\n`;
+            });
+
+            // Ensure backup directory exists
+            const fs = require('fs').promises;
+            try {
+                await fs.mkdir(backupDir, { recursive: true });
+            } catch (error) {
+                // Directory might already exist, ignore error
+            }
+
+            // Write backup file
+            await fs.writeFile(backupPath, sqlContent, 'utf8');
+        }
+
+        // Clear attendance table
+        await db.query('TRUNCATE TABLE attendance');
+
+        // Log the action
+        await logAuditAction(req.user.id, 'CLEAR_ATTENDANCE', {
+            backup_filename: backupFilename,
+            records_cleared: records.length
+        });
+
+        res.json({
+            success: true,
+            message: `All attendance records cleared successfully. ${records.length} records backed up to ${backupFilename}`,
+            data: {
+                backup_filename: backupFilename,
+                records_cleared: records.length
+            }
+        });
+    } catch (error) {
+        console.error('Clear attendance error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error clearing attendance records'
+        });
+    }
+};
+
 module.exports = {
     getDashboardStats,
     getAllAssistants,
@@ -905,6 +1154,8 @@ module.exports = {
     updateSession,
     deleteSession,
     getAttendanceRecords,
+    recordAttendanceManually,
+    clearAttendance,
     getAllUsers,
     getUserById,
     createUser,
