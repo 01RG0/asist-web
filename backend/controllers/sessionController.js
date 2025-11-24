@@ -1,4 +1,7 @@
-const db = require('../config/database');
+const Session = require('../models/Session');
+const Center = require('../models/Center');
+const Attendance = require('../models/Attendance');
+const mongoose = require('mongoose');
 
 /**
  * Get assistant's sessions for today
@@ -7,42 +10,86 @@ const db = require('../config/database');
 const getTodaySessions = async (req, res) => {
     try {
         const assistantId = req.user.id;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        const [sessions] = await db.query(
-            `SELECT 
-        s.id,
-        s.subject,
-        CURDATE() as date,
-        TIME(s.start_time) as start_time,
-        ADDTIME(TIME(s.start_time), '02:00:00') as end_time,
-        c.id as center_id,
-        c.name as center_name,
-        c.latitude,
-        c.longitude,
-        c.radius_m,
-        a.id as attendance_id,
-        s.recurrence_type
-      FROM sessions s
-      JOIN centers c ON s.center_id = c.id
-      LEFT JOIN attendance a ON a.session_id = s.id AND a.assistant_id = ?
-      WHERE 
-        (s.assistant_id = ? OR s.assistant_id IS NULL)
-        AND (
-          (s.recurrence_type = 'one_time' AND DATE(s.start_time) = CURDATE())
-          OR 
-          (s.recurrence_type = 'weekly' AND s.day_of_week = WEEKDAY(CURDATE()) + 1 AND s.is_active = TRUE)
-        )
-      ORDER BY TIME(s.start_time)`,
-            [assistantId, assistantId]
-        );
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
 
+        // Get current day of week (1 = Monday, 7 = Sunday)
+        // JavaScript getDay(): 0 = Sunday, 1 = Monday, ... 6 = Saturday
+        // Convert to our format: 1 = Monday, 7 = Sunday
+        const jsDay = today.getDay();
+        const ourDayOfWeek = jsDay === 0 ? 7 : jsDay;
+
+        // Find sessions for today (one-time or weekly recurring)
+        const sessions = await Session.find({
+            $or: [
+                // One-time sessions scheduled for today
+                {
+                    recurrence_type: 'one_time',
+                    start_time: {
+                        $gte: today,
+                        $lt: tomorrow
+                    }
+                },
+                // Weekly sessions for today's day of week
+                {
+                    recurrence_type: 'weekly',
+                    day_of_week: ourDayOfWeek,
+                    is_active: true
+                }
+            ],
+            // Session must be assigned to this assistant or unassigned
+            $or: [
+                { assistant_id: assistantId },
+                { assistant_id: null }
+            ]
+        })
+            .populate('center_id', 'name latitude longitude radius_m')
+            .sort({ start_time: 1 })
+            .lean();
+
+        // Format sessions and check attendance
+        const formattedSessions = await Promise.all(sessions.map(async (session) => {
+            // Check if attendance exists for this session
+            const attendance = await Attendance.findOne({
+                session_id: session._id,
+                assistant_id: assistantId
+            }).lean();
+
+            // Extract time from start_time
+            const sessionTime = new Date(session.start_time);
+            const hours = sessionTime.getHours().toString().padStart(2, '0');
+            const minutes = sessionTime.getMinutes().toString().padStart(2, '0');
+            const startTime = `${hours}:${minutes}:00`;
+
+            // Calculate end time (2 hours later)
+            const endHour = (sessionTime.getHours() + 2).toString().padStart(2, '0');
+            const endTime = `${endHour}:${minutes}:00`;
+
+            const center = session.center_id;
+
+            return {
+                id: session._id,
+                subject: session.subject,
+                date: today.toISOString().split('T')[0],
+                start_time: startTime,
+                end_time: endTime,
+                center_id: center._id,
+                center_name: center.name,
+                latitude: center.latitude,
+                longitude: center.longitude,
+                radius_m: center.radius_m,
+                attendance_id: attendance ? attendance._id : null,
+                recurrence_type: session.recurrence_type,
+                attended: attendance !== null
+            };
+        }));
 
         res.json({
             success: true,
-            data: sessions.map(session => ({
-                ...session,
-                attended: session.attendance_id !== null
-            }))
+            data: formattedSessions
         });
 
     } catch (error) {
@@ -63,34 +110,53 @@ const getSessionById = async (req, res) => {
         const { id } = req.params;
         const assistantId = req.user.id;
 
-        const [sessions] = await db.query(
-            `SELECT 
-        s.id,
-        s.subject,
-        CURDATE() as date,
-        TIME(s.start_time) as start_time,
-        ADDTIME(TIME(s.start_time), '02:00:00') as end_time,
-        c.id as center_id,
-        c.name as center_name,
-        c.latitude,
-        c.longitude,
-        c.radius_m
-      FROM sessions s
-      JOIN centers c ON s.center_id = c.id
-      WHERE s.id = ? AND (s.assistant_id = ? OR s.assistant_id IS NULL)`,
-            [id, assistantId]
-        );
+        const session = await Session.findOne({
+            _id: id,
+            $or: [
+                { assistant_id: assistantId },
+                { assistant_id: null }
+            ]
+        })
+            .populate('center_id', 'name latitude longitude radius_m')
+            .lean();
 
-        if (sessions.length === 0) {
+        if (!session) {
             return res.status(404).json({
                 success: false,
                 message: 'Session not found or not assigned to you'
             });
         }
 
+        // Extract time from start_time
+        const sessionTime = new Date(session.start_time);
+        const hours = sessionTime.getHours().toString().padStart(2, '0');
+        const minutes = sessionTime.getMinutes().toString().padStart(2, '0');
+        const startTime = `${hours}:${minutes}:00`;
+
+        // Calculate end time (2 hours later)
+        const endHour = (sessionTime.getHours() + 2).toString().padStart(2, '0');
+        const endTime = `${endHour}:${minutes}:00`;
+
+        const center = session.center_id;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const formattedSession = {
+            id: session._id,
+            subject: session.subject,
+            date: today.toISOString().split('T')[0],
+            start_time: startTime,
+            end_time: endTime,
+            center_id: center._id,
+            center_name: center.name,
+            latitude: center.latitude,
+            longitude: center.longitude,
+            radius_m: center.radius_m
+        };
+
         res.json({
             success: true,
-            data: sessions[0]
+            data: formattedSession
         });
 
     } catch (error) {

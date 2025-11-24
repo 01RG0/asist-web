@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/database');
+const User = require('../models/User');
 const jwtConfig = require('../config/jwt');
 
 /**
@@ -20,19 +20,14 @@ const login = async (req, res) => {
         }
 
         // Find user by email
-        const [users] = await db.query(
-            'SELECT id, name, email, password_hash, role FROM users WHERE email = ?',
-            [email]
-        );
+        const user = await User.findOne({ email: email.toLowerCase() });
 
-        if (users.length === 0) {
+        if (!user) {
             return res.status(401).json({
                 success: false,
                 message: 'Invalid email or password'
             });
         }
-
-        const user = users[0];
 
         // Verify password
         const isValidPassword = await bcrypt.compare(password, user.password_hash);
@@ -47,7 +42,7 @@ const login = async (req, res) => {
         // Generate JWT access token
         const token = jwt.sign(
             {
-                id: user.id,
+                id: user._id.toString(),
                 email: user.email,
                 role: user.role
             },
@@ -58,7 +53,7 @@ const login = async (req, res) => {
         // Generate refresh token
         const refreshToken = jwt.sign(
             {
-                id: user.id,
+                id: user._id.toString(),
                 email: user.email,
                 role: user.role
             },
@@ -74,7 +69,7 @@ const login = async (req, res) => {
                 token,
                 refreshToken,
                 user: {
-                    id: user.id,
+                    id: user._id,
                     name: user.name,
                     email: user.email,
                     role: user.role
@@ -108,12 +103,9 @@ const register = async (req, res) => {
         }
 
         // Check if user exists
-        const [existingUsers] = await db.query(
-            'SELECT id FROM users WHERE email = ?',
-            [email]
-        );
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
 
-        if (existingUsers.length > 0) {
+        if (existingUser) {
             return res.status(409).json({
                 success: false,
                 message: 'User with this email already exists'
@@ -123,25 +115,38 @@ const register = async (req, res) => {
         // Hash password
         const passwordHash = await bcrypt.hash(password, 10);
 
-        // Insert user
-        const [result] = await db.query(
-            'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            [name, email, passwordHash, role]
-        );
+        // Create user
+        const newUser = new User({
+            name,
+            email: email.toLowerCase(),
+            password_hash: passwordHash,
+            role
+        });
+
+        await newUser.save();
 
         res.status(201).json({
             success: true,
             message: 'User registered successfully',
             data: {
-                id: result.insertId,
-                name,
-                email,
-                role
+                id: newUser._id,
+                name: newUser.name,
+                email: newUser.email,
+                role: newUser.role
             }
         });
 
     } catch (error) {
         console.error('Register error:', error);
+
+        // Handle unique constraint violation
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                message: 'User with this email already exists'
+            });
+        }
+
         res.status(500).json({
             success: false,
             message: 'Server error during registration'
@@ -167,33 +172,33 @@ const refreshToken = async (req, res) => {
         // Verify refresh token
         const decoded = jwt.verify(token, jwtConfig.secret);
 
-        // Optional: Find user to ensure they still exist (skip on database errors for resilience)
-        let user = { id: decoded.id, email: decoded.email, role: decoded.role };
+        // Find user to ensure they still exist
+        let user;
 
         try {
-            const [users] = await db.query(
-                'SELECT id, name, email, role FROM users WHERE id = ?',
-                [decoded.id]
-            );
+            user = await User.findById(decoded.id);
 
-            if (users.length === 0) {
+            if (!user) {
                 return res.status(401).json({
                     success: false,
                     message: 'User not found'
                 });
             }
-
-            user = users[0];
         } catch (dbError) {
             // If database is temporarily unavailable, allow refresh with token data
             // This prevents logout during server restarts or database issues
             console.warn('Database unavailable during token refresh, using token data:', dbError.message);
+            user = {
+                _id: decoded.id,
+                email: decoded.email,
+                role: decoded.role
+            };
         }
 
         // Generate new access token
         const newToken = jwt.sign(
             {
-                id: user.id,
+                id: user._id.toString(),
                 email: user.email,
                 role: user.role
             },

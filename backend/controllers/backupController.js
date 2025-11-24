@@ -1,4 +1,8 @@
-const db = require('../config/database');
+const User = require('../models/User');
+const Center = require('../models/Center');
+const Session = require('../models/Session');
+const Attendance = require('../models/Attendance');
+const AuditLog = require('../models/AuditLog');
 const path = require('path');
 const fs = require('fs').promises;
 const { logAuditAction } = require('../utils/auditLogger');
@@ -24,7 +28,7 @@ const listBackups = async (req, res) => {
         // Filter and get file stats
         const backupFiles = [];
         for (const file of files) {
-            if (file.endsWith('.sql') || file.endsWith('.zip') || file.endsWith('.gz')) {
+            if (file.endsWith('.json') || file.endsWith('.zip') || file.endsWith('.gz')) {
                 try {
                     const filePath = path.join(backupDir, file);
                     const stats = await fs.stat(filePath);
@@ -63,85 +67,90 @@ const listBackups = async (req, res) => {
 };
 
 /**
- * Create a new database backup
+ * Create a new database backup (MongoDB JSON export)
  * POST /api/admin/backups
  */
 const createBackup = async (req, res) => {
     try {
-        const { type = 'full', tables = null, description = '' } = req.body;
+        const { type = 'full', collections = null, description = '' } = req.body;
 
         const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '').replace(/-/g, '').replace('T', '_');
-        const backupFilename = `backup_${type}_${timestamp}.sql`;
+        const backupFilename = `backup_${type}_${timestamp}.json`;
         const backupDir = path.join(__dirname, '..', 'database', 'backups');
         const backupPath = path.join(backupDir, backupFilename);
 
         // Ensure backup directory exists
         await fs.mkdir(backupDir, { recursive: true });
 
-        // Generate SQL dump
-        let sqlContent = `-- Database backup created on ${new Date().toISOString()}\n`;
-        sqlContent += `-- Type: ${type}\n`;
-        sqlContent += `-- Description: ${description}\n`;
-        sqlContent += `-- Created by: ${req.user.name} (${req.user.email})\n\n`;
+        // Create backup data object
+        const backupData = {
+            metadata: {
+                created_at: new Date().toISOString(),
+                type,
+                description,
+                created_by: {
+                    id: req.user.id,
+                    name: req.user.name,
+                    email: req.user.email
+                },
+                database: 'MongoDB'
+            },
+            data: {}
+        };
 
-        // Get all tables or specific tables
-        let tablesToBackup = [];
-        if (tables && Array.isArray(tables)) {
-            tablesToBackup = tables;
-        } else {
-            // Get all tables from database
-            const [tableResults] = await db.query(`
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = DATABASE()
-                AND table_type = 'BASE TABLE'
-                ORDER BY table_name
-            `);
-            tablesToBackup = tableResults.map(row => row.table_name);
-        }
+        // Determine which collections to backup
+        let collectionsToBackup = collections || ['users', 'centers', 'sessions', 'attendance', 'auditlogs'];
 
-        // Backup each table
-        for (const tableName of tablesToBackup) {
+        // Export each collection
+        for (const collectionName of collectionsToBackup) {
             try {
-                // Get table structure
-                const [structureResult] = await db.query(`SHOW CREATE TABLE \`${tableName}\``);
-                if (structureResult.length > 0) {
-                    sqlContent += `-- Table structure for ${tableName}\n`;
-                    sqlContent += `DROP TABLE IF EXISTS \`${tableName}\`;\n`;
-                    sqlContent += structureResult[0]['Create Table'] + ';\n\n';
+                let data = [];
+
+                switch (collectionName.toLowerCase()) {
+                    case 'users':
+                        data = await User.find().lean();
+                        break;
+                    case 'centers':
+                        data = await Center.find().lean();
+                        break;
+                    case 'sessions':
+                        data = await Session.find().lean();
+                        break;
+                    case 'attendance':
+                        data = await Attendance.find().lean();
+                        break;
+                    case 'auditlogs':
+                        data = await AuditLog.find().lean();
+                        break;
+                    default:
+                        console.warn(`Unknown collection: ${collectionName}`);
+                        continue;
                 }
 
-                // Get table data
-                const [rows] = await db.query(`SELECT * FROM \`${tableName}\``);
-                if (rows.length > 0) {
-                    sqlContent += `-- Data for ${tableName}\n`;
-                    for (const row of rows) {
-                        const columns = Object.keys(row).map(col => `\`${col}\``).join(', ');
-                        const values = Object.values(row).map(val => {
-                            if (val === null) return 'NULL';
-                            if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
-                            if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
-                            return val;
-                        }).join(', ');
-                        sqlContent += `INSERT INTO \`${tableName}\` (${columns}) VALUES (${values});\n`;
-                    }
-                    sqlContent += '\n';
-                }
-            } catch (tableError) {
-                console.warn(`Error backing up table ${tableName}:`, tableError.message);
-                sqlContent += `-- Error backing up table ${tableName}: ${tableError.message}\n\n`;
+                backupData.data[collectionName] = {
+                    count: data.length,
+                    records: data
+                };
+            } catch (collectionError) {
+                console.warn(`Error backing up collection ${collectionName}:`, collectionError.message);
+                backupData.data[collectionName] = {
+                    error: collectionError.message,
+                    count: 0,
+                    records: []
+                };
             }
         }
 
         // Write backup file
-        await fs.writeFile(backupPath, sqlContent, 'utf8');
+        const jsonContent = JSON.stringify(backupData, null, 2);
+        await fs.writeFile(backupPath, jsonContent, 'utf8');
 
         // Log the action
         await logAuditAction(req.user.id, 'CREATE_BACKUP', {
             filename: backupFilename,
             type,
-            tables: tablesToBackup,
-            size: Buffer.byteLength(sqlContent, 'utf8'),
+            collections: collectionsToBackup,
+            size: Buffer.byteLength(jsonContent, 'utf8'),
             description
         });
 
@@ -151,8 +160,8 @@ const createBackup = async (req, res) => {
             data: {
                 filename: backupFilename,
                 type,
-                size: Buffer.byteLength(sqlContent, 'utf8'),
-                tables: tablesToBackup.length,
+                size: Buffer.byteLength(jsonContent, 'utf8'),
+                collections: Object.keys(backupData.data).length,
                 path: backupPath
             }
         });
@@ -174,8 +183,8 @@ const downloadBackup = async (req, res) => {
         const { filename } = req.params;
         const backupPath = path.join(__dirname, '..', 'database', 'backups', filename);
 
-        // Security check - only allow .sql, .zip, .gz files
-        if (!filename.match(/\.(sql|zip|gz)$/)) {
+        // Security check - only allow .json, .zip, .gz files
+        if (!filename.match(/\.(json|zip|gz)$/)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid file type'
@@ -223,7 +232,7 @@ const deleteBackup = async (req, res) => {
         const backupPath = path.join(__dirname, '..', 'database', 'backups', filename);
 
         // Security check
-        if (!filename.match(/\.(sql|zip|gz)$/)) {
+        if (!filename.match(/\.(json|zip|gz)$/)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid file type'
@@ -276,7 +285,7 @@ const getBackupInfo = async (req, res) => {
         const backupPath = path.join(__dirname, '..', 'database', 'backups', filename);
 
         // Security check
-        if (!filename.match(/\.(sql|zip|gz)$/)) {
+        if (!filename.match(/\.(json|zip|gz)$/)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid file type'
@@ -315,11 +324,11 @@ function parseBackupFilename(filename) {
         type: 'unknown',
         timestamp: null,
         date: null,
-        tables: null
+        format: filename.endsWith('.json') ? 'json' : filename.endsWith('.sql') ? 'sql' : 'archive'
     };
 
-    // Parse filename like: backup_full_20251123_225603.sql
-    const match = filename.match(/^backup_(\w+)_(\d{8})_(\d{6})\.sql$/);
+    // Parse filename like: backup_full_20251123_225603.json
+    const match = filename.match(/^backup_(\w+)_(\d{8})_(\d{6})\.(json|sql|zip|gz)$/);
     if (match) {
         info.type = match[1];
         const dateStr = match[2];
@@ -329,8 +338,8 @@ function parseBackupFilename(filename) {
         info.date = new Date(info.timestamp);
     }
 
-    // Parse attendance backup: attendance_backup_20251123_225603.sql
-    const attendanceMatch = filename.match(/^attendance_backup_(\d{8})_(\d{6})\.sql$/);
+    // Parse attendance backup: attendance_backup_20251123_225603.json
+    const attendanceMatch = filename.match(/^attendance_backup_(\d{8})_(\d{6})\.(json|sql)$/);
     if (attendanceMatch) {
         info.type = 'attendance';
         const dateStr = attendanceMatch[1];

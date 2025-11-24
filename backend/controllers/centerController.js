@@ -1,4 +1,4 @@
-const db = require('../config/database');
+const Center = require('../models/Center');
 const { logAuditAction } = require('../utils/auditLogger');
 
 /**
@@ -7,13 +7,25 @@ const { logAuditAction } = require('../utils/auditLogger');
  */
 const getAllCenters = async (req, res) => {
     try {
-        const [centers] = await db.query(
-            'SELECT id, name, latitude, longitude, radius_m, address, created_at FROM centers ORDER BY name'
-        );
+        const centers = await Center.find()
+            .select('_id name latitude longitude radius_m address createdAt')
+            .sort({ name: 1 })
+            .lean();
+
+        // Transform _id to id for frontend compatibility
+        const formattedCenters = centers.map(center => ({
+            id: center._id,
+            name: center.name,
+            latitude: center.latitude,
+            longitude: center.longitude,
+            radius_m: center.radius_m,
+            address: center.address,
+            created_at: center.createdAt
+        }));
 
         res.json({
             success: true,
-            data: centers
+            data: formattedCenters
         });
     } catch (error) {
         console.error('Get centers error:', error);
@@ -39,14 +51,19 @@ const createCenter = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            'INSERT INTO centers (name, latitude, longitude, radius_m, address) VALUES (?, ?, ?, ?, ?)',
-            [name, latitude, longitude, radius_m, address]
-        );
+        const newCenter = new Center({
+            name,
+            latitude,
+            longitude,
+            radius_m,
+            address
+        });
+
+        await newCenter.save();
 
         // Log the action
         await logAuditAction(req.user.id, 'CREATE_CENTER', {
-            center_id: result.insertId,
+            center_id: newCenter._id.toString(),
             name,
             latitude,
             longitude,
@@ -58,12 +75,12 @@ const createCenter = async (req, res) => {
             success: true,
             message: 'Center created successfully',
             data: {
-                id: result.insertId,
-                name,
-                latitude,
-                longitude,
-                radius_m,
-                address
+                id: newCenter._id,
+                name: newCenter.name,
+                latitude: newCenter.latitude,
+                longitude: newCenter.longitude,
+                radius_m: newCenter.radius_m,
+                address: newCenter.address
             }
         });
     } catch (error) {
@@ -84,18 +101,21 @@ const updateCenter = async (req, res) => {
         const { id } = req.params;
         const { name, latitude, longitude, radius_m, address } = req.body;
 
-        const [result] = await db.query(
-            `UPDATE centers 
-       SET name = COALESCE(?, name),
-           latitude = COALESCE(?, latitude),
-           longitude = COALESCE(?, longitude),
-           radius_m = COALESCE(?, radius_m),
-           address = COALESCE(?, address)
-       WHERE id = ?`,
-            [name, latitude, longitude, radius_m, address, id]
+        // Build update object with only provided fields
+        const updateData = {};
+        if (name !== undefined) updateData.name = name;
+        if (latitude !== undefined) updateData.latitude = latitude;
+        if (longitude !== undefined) updateData.longitude = longitude;
+        if (radius_m !== undefined) updateData.radius_m = radius_m;
+        if (address !== undefined) updateData.address = address;
+
+        const updatedCenter = await Center.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true, runValidators: true }
         );
 
-        if (result.affectedRows === 0) {
+        if (!updatedCenter) {
             return res.status(404).json({
                 success: false,
                 message: 'Center not found'
@@ -105,11 +125,7 @@ const updateCenter = async (req, res) => {
         // Log the action
         await logAuditAction(req.user.id, 'UPDATE_CENTER', {
             center_id: id,
-            name,
-            latitude,
-            longitude,
-            radius_m,
-            address
+            ...updateData
         });
 
         res.json({
@@ -133,21 +149,31 @@ const getCenterById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [centers] = await db.query(
-            'SELECT id, name, latitude, longitude, radius_m, address, created_at FROM centers WHERE id = ?',
-            [id]
-        );
+        const center = await Center.findById(id)
+            .select('_id name latitude longitude radius_m address createdAt')
+            .lean();
 
-        if (centers.length === 0) {
+        if (!center) {
             return res.status(404).json({
                 success: false,
                 message: 'Center not found'
             });
         }
 
+        // Transform for frontend compatibility
+        const formattedCenter = {
+            id: center._id,
+            name: center.name,
+            latitude: center.latitude,
+            longitude: center.longitude,
+            radius_m: center.radius_m,
+            address: center.address,
+            created_at: center.createdAt
+        };
+
         res.json({
             success: true,
-            data: centers[0]
+            data: formattedCenter
         });
     } catch (error) {
         console.error('Get center error:', error);
@@ -166,9 +192,9 @@ const deleteCenter = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [result] = await db.query('DELETE FROM centers WHERE id = ?', [id]);
+        const deletedCenter = await Center.findByIdAndDelete(id);
 
-        if (result.affectedRows === 0) {
+        if (!deletedCenter) {
             return res.status(404).json({
                 success: false,
                 message: 'Center not found'

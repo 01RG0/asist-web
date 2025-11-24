@@ -1,6 +1,26 @@
 /docs
 RECURRING_SESSIONS_COMPLETE.md
-RECURRING_SESSIONS_COMPLETE.md
+RECURRING_SESSIONS_COMPLETE.# Dependencies
+node_modules/
 
-# Environment variables
-.env
+# Environment variables (now tracked with placeholders)
+# .env
+.env.local
+# .env.production is now tracked (contains template with placeholders)
+
+# Logs
+*.log
+
+# Backups
+backend/database/backups/
+
+# SSL Certificates
+*.pem
+
+# Vercel
+.vercel
+.vercel/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,4 +1,6 @@
-const db = require('../config/database');
+const Attendance = require('../models/Attendance');
+const Session = require('../models/Session');
+const Center = require('../models/Center');
 const { calculateDistance } = require('../utils/haversine');
 const { logAuditAction } = require('../utils/auditLogger');
 
@@ -8,7 +10,7 @@ const { logAuditAction } = require('../utils/auditLogger');
  */
 const recordAttendance = async (req, res) => {
     try {
-        const { session_id, latitude, longitude } = req.body;
+        const { session_id, latitude, longitude, notes } = req.body;
         const assistantId = req.user.id;
 
         // Validation
@@ -19,36 +21,20 @@ const recordAttendance = async (req, res) => {
             });
         }
 
-        // Get session details
-        const [sessions] = await db.query(
-            `SELECT 
-        s.id,
-        s.assistant_id,
-        s.center_id,
-        s.subject,
-        CURDATE() as date,
-        TIME(s.start_time) as start_time,
-        c.latitude as center_lat,
-        c.longitude as center_lng,
-        c.radius_m,
-        c.name as center_name
-      FROM sessions s
-      JOIN centers c ON s.center_id = c.id
-      WHERE s.id = ?`,
-            [session_id]
-        );
+        // Get session details with populated center
+        const session = await Session.findById(session_id)
+            .populate('center_id')
+            .lean();
 
-        if (sessions.length === 0) {
+        if (!session) {
             return res.status(404).json({
                 success: false,
                 message: 'Session not found'
             });
         }
 
-        const session = sessions[0];
-
         // Verify session belongs to assistant (if assigned)
-        if (session.assistant_id && session.assistant_id !== assistantId) {
+        if (session.assistant_id && session.assistant_id.toString() !== assistantId.toString()) {
             return res.status(403).json({
                 success: false,
                 message: 'This session is not assigned to you'
@@ -56,54 +42,67 @@ const recordAttendance = async (req, res) => {
         }
 
         // Check if already attended
-        const [existingAttendance] = await db.query(
-            'SELECT id FROM attendance WHERE session_id = ? AND assistant_id = ?',
-            [session_id, assistantId]
-        );
+        const existingAttendance = await Attendance.findOne({
+            session_id,
+            assistant_id: assistantId
+        });
 
-        if (existingAttendance.length > 0) {
+        if (existingAttendance) {
             return res.status(409).json({
                 success: false,
                 message: 'Attendance already recorded for this session'
             });
         }
 
+        const center = session.center_id;
+
         // Calculate distance from center
         const distance = calculateDistance(
-            session.center_lat,
-            session.center_lng,
+            center.latitude,
+            center.longitude,
             latitude,
             longitude
         );
 
         // Check if within radius
-        if (distance > session.radius_m) {
+        if (distance > center.radius_m) {
             return res.status(400).json({
                 success: false,
-                message: `You are ${Math.round(distance)}m away from ${session.center_name}. You must be within ${session.radius_m}m to mark attendance.`,
+                message: `You are ${Math.round(distance)}m away from ${center.name}. You must be within ${center.radius_m}m to mark attendance.`,
                 data: {
                     distance: Math.round(distance),
-                    required_radius: session.radius_m
+                    required_radius: center.radius_m
                 }
             });
         }
 
         // Calculate delay
         const now = new Date();
-        const sessionDate = new Date(); // Use today
-        const [hours, minutes] = session.start_time.split(':');
-        sessionDate.setHours(parseInt(hours), parseInt(minutes), 0);
+        const sessionTime = new Date(session.start_time);
 
-        const delayMs = now - sessionDate;
+        // For weekly sessions, set the time to today
+        if (session.recurrence_type === 'weekly') {
+            const today = new Date();
+            today.setHours(sessionTime.getHours(), sessionTime.getMinutes(), 0, 0);
+            sessionTime.setTime(today.getTime());
+        }
+
+        const delayMs = now - sessionTime;
         const delayMinutes = Math.max(0, Math.floor(delayMs / 60000));
 
         // Record attendance
-        const [result] = await db.query(
-            `INSERT INTO attendance 
-        (assistant_id, session_id, center_id, latitude, longitude, time_recorded, delay_minutes) 
-       VALUES (?, ?, ?, ?, ?, NOW(), ?)`,
-            [assistantId, session_id, session.center_id, latitude, longitude, delayMinutes]
-        );
+        const newAttendance = new Attendance({
+            assistant_id: assistantId,
+            session_id,
+            center_id: session.center_id._id,
+            latitude,
+            longitude,
+            time_recorded: now,
+            delay_minutes: delayMinutes,
+            notes: notes || ''
+        });
+
+        await newAttendance.save();
 
         const arrivalTime = now.toLocaleTimeString('en-US', {
             hour: '2-digit',
@@ -111,11 +110,16 @@ const recordAttendance = async (req, res) => {
             hour12: true
         });
 
+        // Extract time from start_time
+        const hours = sessionTime.getHours().toString().padStart(2, '0');
+        const minutes = sessionTime.getMinutes().toString().padStart(2, '0');
+        const startTime = `${hours}:${minutes}`;
+
         // Log the action
         await logAuditAction(assistantId, 'RECORD_ATTENDANCE', {
-            attendance_id: result.insertId,
+            attendance_id: newAttendance._id.toString(),
             session_id,
-            center_id: session.center_id,
+            center_id: session.center_id._id.toString(),
             subject: session.subject,
             delay_minutes: delayMinutes,
             distance: Math.round(distance)
@@ -123,11 +127,11 @@ const recordAttendance = async (req, res) => {
 
         res.json({
             success: true,
-            message: `Attendance recorded for ${session.subject} — ${session.start_time}. Arrival time: ${arrivalTime}. ${delayMinutes > 0 ? `Delay: ${delayMinutes} minutes.` : 'No delay.'}`,
+            message: `Attendance recorded for ${session.subject} — ${startTime}. Arrival time: ${arrivalTime}. ${delayMinutes > 0 ? `Delay: ${delayMinutes} minutes.` : 'No delay.'}`,
             data: {
-                attendance_id: result.insertId,
+                attendance_id: newAttendance._id,
                 session: session.subject,
-                center: session.center_name,
+                center: center.name,
                 arrival_time: arrivalTime,
                 delay_minutes: delayMinutes,
                 distance: Math.round(distance)
@@ -151,28 +155,48 @@ const getMyAttendance = async (req, res) => {
     try {
         const assistantId = req.user.id;
 
-        const [records] = await db.query(
-            `SELECT 
-        a.id,
-        a.time_recorded,
-        a.delay_minutes,
-        s.subject,
-        DATE(s.start_time) as date,
-        TIME(s.start_time) as start_time,
-        ADDTIME(TIME(s.start_time), '02:00:00') as end_time,
-        c.name as center_name
-      FROM attendance a
-      JOIN sessions s ON a.session_id = s.id
-      JOIN centers c ON a.center_id = c.id
-      WHERE a.assistant_id = ?
-      ORDER BY a.time_recorded DESC
-      LIMIT 50`,
-            [assistantId]
-        );
+        const records = await Attendance.find({ assistant_id: assistantId })
+            .populate({
+                path: 'session_id',
+                select: 'subject start_time'
+            })
+            .populate({
+                path: 'center_id',
+                select: 'name'
+            })
+            .sort({ time_recorded: -1 })
+            .limit(50)
+            .lean();
+
+        // Format records for frontend
+        const formattedRecords = records.map(record => {
+            const session = record.session_id;
+            const sessionDate = new Date(session.start_time);
+
+            const dateStr = sessionDate.toISOString().split('T')[0];
+            const hours = sessionDate.getHours().toString().padStart(2, '0');
+            const minutes = sessionDate.getMinutes().toString().padStart(2, '0');
+            const startTime = `${hours}:${minutes}:00`;
+
+            // Calculate end time (2 hours later)
+            const endHour = (sessionDate.getHours() + 2).toString().padStart(2, '0');
+            const endTime = `${endHour}:${minutes}:00`;
+
+            return {
+                id: record._id,
+                time_recorded: record.time_recorded,
+                delay_minutes: record.delay_minutes,
+                subject: session.subject,
+                date: dateStr,
+                start_time: startTime,
+                end_time: endTime,
+                center_name: record.center_id.name
+            };
+        });
 
         res.json({
             success: true,
-            data: records
+            data: formattedRecords
         });
 
     } catch (error) {

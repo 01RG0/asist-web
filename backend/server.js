@@ -3,6 +3,9 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
+// MongoDB connection
+const connectDB = require('./config/database');
+
 // Unified logger
 const logger = require('./utils/logger');
 
@@ -49,7 +52,8 @@ app.get('/health', (req, res) => {
     res.json({
         success: true,
         message: 'Attendance System API is running',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        database: 'MongoDB'
     });
 });
 
@@ -59,6 +63,7 @@ app.get('/', (req, res) => {
         success: true,
         message: 'Welcome to Assistant Attendance System API',
         version: '1.0.0',
+        database: 'MongoDB',
         endpoints: {
             auth: '/api/auth',
             sessions: '/api/sessions',
@@ -98,43 +103,59 @@ app.use((err, req, res, next) => {
     });
 });
 
-/* ---------- HTTPS / HTTP server ---------- */
-const https = require('https');
-const http = require('http');
-const fs = require('fs');
+/* ---------- Server startup ---------- */
+// Start server only if not in Vercel serverless environment
+if (process.env.VERCEL !== '1') {
+    const https = require('https');
+    const http = require('http');
+    const fs = require('fs');
 
-let server;
-let protocol = 'http';
+    let server;
+    let protocol = 'http';
 
-try {
-    if (fs.existsSync(path.join(__dirname, 'key.pem')) && fs.existsSync(path.join(__dirname, 'cert.pem'))) {
-        const sslOptions = {
-            key: fs.readFileSync(path.join(__dirname, 'key.pem')),
-            cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
-        };
-        server = https.createServer(sslOptions, app);
-        protocol = 'https';
-        console.log('🔒 HTTPS Enabled');
-    } else {
-        throw new Error('Certificates not found');
+    try {
+        if (fs.existsSync(path.join(__dirname, 'key.pem')) && fs.existsSync(path.join(__dirname, 'cert.pem'))) {
+            const sslOptions = {
+                key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+                cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+            };
+            server = https.createServer(sslOptions, app);
+            protocol = 'https';
+            console.log('🔒 HTTPS Enabled');
+        } else {
+            throw new Error('Certificates not found');
+        }
+    } catch (e) {
+        console.log('⚠️  SSL Certificates not found or invalid, falling back to HTTP');
+        server = http.createServer(app);
     }
-} catch (e) {
-    console.log('⚠️  SSL Certificates not found or invalid, falling back to HTTP');
-    server = http.createServer(app);
+
+    // Connect to MongoDB and start server
+    connectDB().then(() => {
+        server.listen(PORT, () => {
+            console.log('═══════════════════════════════════════════════════════');
+            console.log('  🎯 Assistant Attendance System');
+            console.log('═══════════════════════════════════════════════════════');
+            console.log(`  ✅ Server running on port ${PORT} (${protocol.toUpperCase()})`);
+            console.log('');
+            console.log('  📱 ASSISTANT PWA:');
+            console.log(`     ${protocol}://localhost:${PORT}/assistant/`);
+            console.log('');
+            console.log('  👨‍💼 ADMIN DASHBOARD:');
+            console.log(`     ${protocol}://localhost:${PORT}/admin/`);
+            console.log('═══════════════════════════════════════════════════════');
+        });
+    }).catch(err => {
+        console.error('Failed to connect to MongoDB:', err);
+        process.exit(1);
+    });
+} else {
+    // For Vercel: Connect to MongoDB without starting HTTP server
+    connectDB().catch(err => {
+        console.error('Failed to connect to MongoDB in Vercel:', err);
+    });
 }
 
-server.listen(PORT, () => {
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('  🎯 Assistant Attendance System');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log(`  ✅ Server running on port ${PORT} (${protocol.toUpperCase()})`);
-    console.log('');
-    console.log('  📱 ASSISTANT PWA:');
-    console.log(`     ${protocol}://localhost:${PORT}/assistant/`);
-    console.log('');
-    console.log('  👨‍💼 ADMIN DASHBOARD:');
-    console.log(`     ${protocol}://localhost:${PORT}/admin/`);
-    console.log('═══════════════════════════════════════════════════════');
-});
-
+// Export app for Vercel serverless function
 module.exports = app;
+

@@ -1,6 +1,9 @@
-const db = require('../config/database');
+const User = require('../models/User');
+const Center = require('../models/Center');
+const Session = require('../models/Session');
+const Attendance = require('../models/Attendance');
+const AuditLog = require('../models/AuditLog');
 const bcrypt = require('bcryptjs');
-const path = require('path');
 const { logAuditAction } = require('../utils/auditLogger');
 
 /**
@@ -9,49 +12,83 @@ const { logAuditAction } = require('../utils/auditLogger');
  */
 const getDashboardStats = async (req, res) => {
     try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
         // Today's attendance count
-        const [todayAttendance] = await db.query(
-            'SELECT COUNT(*) as count FROM attendance WHERE DATE(time_recorded) = CURDATE()'
-        );
+        const totalAttendanceToday = await Attendance.countDocuments({
+            time_recorded: {
+                $gte: today,
+                $lt: tomorrow
+            }
+        });
 
         // Late arrivals today
-        const [lateArrivals] = await db.query(
-            'SELECT COUNT(*) as count FROM attendance WHERE DATE(time_recorded) = CURDATE() AND delay_minutes > 0'
-        );
+        const lateArrivals = await Attendance.countDocuments({
+            time_recorded: {
+                $gte: today,
+                $lt: tomorrow
+            },
+            delay_minutes: { $gt: 0 }
+        });
 
         // Total centers
-        const [totalCenters] = await db.query(
-            'SELECT COUNT(*) as count FROM centers'
-        );
+        const totalCenters = await Center.countDocuments();
 
-        // Active sessions today
-        const [activeSessions] = await db.query(
-            'SELECT COUNT(*) as count FROM sessions WHERE DATE(start_time) = CURDATE()'
-        );
+        // Active sessions today (one-time and weekly)
+        const jsDay = today.getDay();
+        const ourDayOfWeek = jsDay === 0 ? 7 : jsDay;
+
+        const activeSessions = await Session.countDocuments({
+            $or: [
+                {
+                    recurrence_type: 'one_time',
+                    start_time: {
+                        $gte: today,
+                        $lt: tomorrow
+                    }
+                },
+                {
+                    recurrence_type: 'weekly',
+                    day_of_week: ourDayOfWeek,
+                    is_active: true
+                }
+            ]
+        });
 
         // Recent attendance today with details
-        const [recentAttendance] = await db.query(
-            `SELECT a.id, a.time_recorded, a.delay_minutes,
-                    u.name as assistant_name, 
-                    c.name as center_name,
-                    s.subject
-             FROM attendance a
-             JOIN users u ON a.assistant_id = u.id
-             JOIN centers c ON a.center_id = c.id
-             JOIN sessions s ON a.session_id = s.id
-             WHERE DATE(a.time_recorded) = CURDATE()
-             ORDER BY a.time_recorded DESC
-             LIMIT 10`
-        );
+        const recentAttendance = await Attendance.find({
+            time_recorded: {
+                $gte: today,
+                $lt: tomorrow
+            }
+        })
+            .populate('assistant_id', 'name')
+            .populate('center_id', 'name')
+            .populate('session_id', 'subject')
+            .sort({ time_recorded: -1 })
+            .limit(10)
+            .lean();
+
+        const formattedRecentAttendance = recentAttendance.map(a => ({
+            id: a._id,
+            time_recorded: a.time_recorded,
+            delay_minutes: a.delay_minutes,
+            assistant_name: a.assistant_id?.name || 'Unknown',
+            center_name: a.center_id?.name || 'Unknown',
+            subject: a.session_id?.subject || 'Unknown'
+        }));
 
         res.json({
             success: true,
             data: {
-                totalAttendanceToday: todayAttendance[0].count,
-                lateArrivals: lateArrivals[0].count,
-                totalCenters: totalCenters[0].count,
-                activeSessions: activeSessions[0].count,
-                recentAttendance: recentAttendance
+                totalAttendanceToday,
+                lateArrivals,
+                totalCenters,
+                activeSessions,
+                recentAttendance: formattedRecentAttendance
             }
         });
     } catch (error) {
@@ -69,20 +106,22 @@ const getDashboardStats = async (req, res) => {
  */
 const getAllAssistants = async (req, res) => {
     try {
-        const [assistants] = await db.query(
-            `SELECT u.id, u.name, u.email, u.created_at,
-              GROUP_CONCAT(c.name SEPARATOR ', ') as centers
-       FROM users u
-       LEFT JOIN assistants_centers ac ON u.id = ac.assistant_id
-       LEFT JOIN centers c ON ac.center_id = c.id
-       WHERE u.role = 'assistant'
-       GROUP BY u.id
-       ORDER BY u.name`
-        );
+        const assistants = await User.find({ role: 'assistant' })
+            .populate('assignedCenters', 'name')
+            .sort({ name: 1 })
+            .lean();
+
+        const formattedAssistants = assistants.map(assistant => ({
+            id: assistant._id,
+            name: assistant.name,
+            email: assistant.email,
+            created_at: assistant.createdAt,
+            centers: assistant.assignedCenters?.map(c => c.name).join(', ') || ''
+        }));
 
         res.json({
             success: true,
-            data: assistants
+            data: formattedAssistants
         });
     } catch (error) {
         console.error('Get assistants error:', error);
@@ -109,8 +148,8 @@ const createAssistant = async (req, res) => {
         }
 
         // Check if email exists
-        const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
-        if (existing.length > 0) {
+        const existing = await User.findOne({ email: email.toLowerCase() });
+        if (existing) {
             return res.status(409).json({
                 success: false,
                 message: 'Email already exists'
@@ -120,26 +159,20 @@ const createAssistant = async (req, res) => {
         // Hash password
         const passwordHash = await bcrypt.hash(password, 10);
 
-        // Insert assistant
-        const [result] = await db.query(
-            'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            [name, email, passwordHash, 'assistant']
-        );
+        // Create assistant
+        const newAssistant = new User({
+            name,
+            email: email.toLowerCase(),
+            password_hash: passwordHash,
+            role: 'assistant',
+            assignedCenters: center_ids
+        });
 
-        const assistantId = result.insertId;
-
-        // Assign centers
-        if (center_ids.length > 0) {
-            const values = center_ids.map(centerId => [assistantId, centerId]);
-            await db.query(
-                'INSERT INTO assistants_centers (assistant_id, center_id) VALUES ?',
-                [values]
-            );
-        }
+        await newAssistant.save();
 
         // Log the action
         await logAuditAction(req.user.id, 'CREATE_ASSISTANT', {
-            assistant_id: assistantId,
+            assistant_id: newAssistant._id.toString(),
             name,
             email,
             center_ids
@@ -148,7 +181,7 @@ const createAssistant = async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Assistant created successfully',
-            data: { id: assistantId, name, email }
+            data: { id: newAssistant._id, name, email }
         });
     } catch (error) {
         console.error('Create assistant error:', error);
@@ -168,35 +201,28 @@ const updateAssistant = async (req, res) => {
         const { id } = req.params;
         const { name, email, center_ids } = req.body;
 
-        // Update user info
-        if (name || email) {
-            await db.query(
-                'UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email) WHERE id = ? AND role = ?',
-                [name, email, id, 'assistant']
-            );
-        }
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (email) updateData.email = email.toLowerCase();
+        if (center_ids !== undefined) updateData.assignedCenters = center_ids;
 
-        // Update centers if provided
-        if (center_ids) {
-            // Remove existing
-            await db.query('DELETE FROM assistants_centers WHERE assistant_id = ?', [id]);
+        const updatedAssistant = await User.findOneAndUpdate(
+            { _id: id, role: 'assistant' },
+            updateData,
+            { new: true, runValidators: true }
+        );
 
-            // Add new
-            if (center_ids.length > 0) {
-                const values = center_ids.map(centerId => [id, centerId]);
-                await db.query(
-                    'INSERT INTO assistants_centers (assistant_id, center_id) VALUES ?',
-                    [values]
-                );
-            }
+        if (!updatedAssistant) {
+            return res.status(404).json({
+                success: false,
+                message: 'Assistant not found'
+            });
         }
 
         // Log the action
         await logAuditAction(req.user.id, 'UPDATE_ASSISTANT', {
             assistant_id: id,
-            name,
-            email,
-            center_ids
+            ...updateData
         });
 
         res.json({
@@ -220,12 +246,12 @@ const deleteAssistant = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [result] = await db.query(
-            'DELETE FROM users WHERE id = ? AND role = ?',
-            [id, 'assistant']
-        );
+        const deletedAssistant = await User.findOneAndDelete({
+            _id: id,
+            role: 'assistant'
+        });
 
-        if (result.affectedRows === 0) {
+        if (!deletedAssistant) {
             return res.status(404).json({
                 success: false,
                 message: 'Assistant not found'
@@ -258,48 +284,46 @@ const getAllSessions = async (req, res) => {
     try {
         const { date, center_id, assistant_id, recurrence_type } = req.query;
 
-        let query = `
-      SELECT s.id, s.subject, s.start_time, s.recurrence_type, s.day_of_week, s.is_active,
-             u.name as assistant_name, c.name as center_name,
-             s.assistant_id, s.center_id
-      FROM sessions s
-      LEFT JOIN users u ON s.assistant_id = u.id
-      JOIN centers c ON s.center_id = c.id
-      WHERE 1=1
-    `;
-
-        const params = [];
+        const query = { is_active: true };
 
         if (date) {
-            query += ' AND DATE(s.start_time) = ?';
-            params.push(date);
+            const targetDate = new Date(date);
+            targetDate.setHours(0, 0, 0, 0);
+            const nextDay = new Date(targetDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+
+            query.start_time = {
+                $gte: targetDate,
+                $lt: nextDay
+            };
         }
 
-        if (center_id) {
-            query += ' AND s.center_id = ?';
-            params.push(center_id);
-        }
+        if (center_id) query.center_id = center_id;
+        if (assistant_id) query.assistant_id = assistant_id;
+        if (recurrence_type) query.recurrence_type = recurrence_type;
 
-        if (assistant_id) {
-            query += ' AND s.assistant_id = ?';
-            params.push(assistant_id);
-        }
+        const sessions = await Session.find(query)
+            .populate('assistant_id', 'name')
+            .populate('center_id', 'name')
+            .sort({ start_time: -1 })
+            .lean();
 
-        if (recurrence_type) {
-            query += ' AND s.recurrence_type = ?';
-            params.push(recurrence_type);
-        }
-
-        // Only show active sessions by default
-        query += ' AND s.is_active = TRUE';
-
-        query += ' ORDER BY s.start_time DESC';
-
-        const [sessions] = await db.query(query, params);
+        const formattedSessions = sessions.map(s => ({
+            id: s._id,
+            subject: s.subject,
+            start_time: s.start_time,
+            recurrence_type: s.recurrence_type,
+            day_of_week: s.day_of_week,
+            is_active: s.is_active,
+            assistant_name: s.assistant_id?.name || null,
+            center_name: s.center_id?.name || 'Unknown',
+            assistant_id: s.assistant_id?._id || null,
+            center_id: s.center_id?._id
+        }));
 
         res.json({
             success: true,
-            data: sessions
+            data: formattedSessions
         });
     } catch (error) {
         console.error('Get sessions error:', error);
@@ -318,27 +342,34 @@ const getSessionById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [sessions] = await db.query(
-            `SELECT s.id, s.subject, s.start_time, s.recurrence_type, s.day_of_week, s.is_active,
-                    u.name as assistant_name, c.name as center_name,
-                    s.assistant_id, s.center_id
-             FROM sessions s
-             LEFT JOIN users u ON s.assistant_id = u.id
-             JOIN centers c ON s.center_id = c.id
-             WHERE s.id = ?`,
-            [id]
-        );
+        const session = await Session.findById(id)
+            .populate('assistant_id', 'name')
+            .populate('center_id', 'name')
+            .lean();
 
-        if (sessions.length === 0) {
+        if (!session) {
             return res.status(404).json({
                 success: false,
                 message: 'Session not found'
             });
         }
 
+        const formattedSession = {
+            id: session._id,
+            subject: session.subject,
+            start_time: session.start_time,
+            recurrence_type: session.recurrence_type,
+            day_of_week: session.day_of_week,
+            is_active: session.is_active,
+            assistant_name: session.assistant_id?.name || null,
+            center_name: session.center_id?.name || 'Unknown',
+            assistant_id: session.assistant_id?._id || null,
+            center_id: session.center_id?._id
+        };
+
         res.json({
             success: true,
-            data: sessions[0]
+            data: formattedSession
         });
     } catch (error) {
         console.error('Get session error:', error);
@@ -379,15 +410,20 @@ const createSession = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            `INSERT INTO sessions (assistant_id, center_id, subject, start_time, recurrence_type, day_of_week) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [assistant_id, center_id, subject, start_time, recurrence_type, day_of_week]
-        );
+        const newSession = new Session({
+            assistant_id,
+            center_id,
+            subject,
+            start_time,
+            recurrence_type,
+            day_of_week
+        });
+
+        await newSession.save();
 
         // Log the action
         await logAuditAction(req.user.id, 'CREATE_SESSION', {
-            session_id: result.insertId,
+            session_id: newSession._id.toString(),
             assistant_id,
             center_id,
             subject,
@@ -399,7 +435,7 @@ const createSession = async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Session created successfully',
-            data: { id: result.insertId }
+            data: { id: newSession._id }
         });
     } catch (error) {
         console.error('Create session error:', error);
@@ -427,20 +463,22 @@ const updateSession = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            `UPDATE sessions 
-       SET assistant_id = COALESCE(?, assistant_id),
-           center_id = COALESCE(?, center_id),
-           subject = COALESCE(?, subject),
-           start_time = COALESCE(?, start_time),
-           recurrence_type = COALESCE(?, recurrence_type),
-           day_of_week = COALESCE(?, day_of_week),
-           is_active = COALESCE(?, is_active)
-       WHERE id = ?`,
-            [assistant_id, center_id, subject, start_time, recurrence_type, day_of_week, is_active, id]
+        const updateData = {};
+        if (assistant_id !== undefined) updateData.assistant_id = assistant_id;
+        if (center_id) updateData.center_id = center_id;
+        if (subject) updateData.subject = subject;
+        if (start_time) updateData.start_time = start_time;
+        if (recurrence_type) updateData.recurrence_type = recurrence_type;
+        if (day_of_week !== undefined) updateData.day_of_week = day_of_week;
+        if (is_active !== undefined) updateData.is_active = is_active;
+
+        const updatedSession = await Session.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true, runValidators: true }
         );
 
-        if (result.affectedRows === 0) {
+        if (!updatedSession) {
             return res.status(404).json({
                 success: false,
                 message: 'Session not found'
@@ -450,13 +488,7 @@ const updateSession = async (req, res) => {
         // Log the action
         await logAuditAction(req.user.id, 'UPDATE_SESSION', {
             session_id: id,
-            assistant_id,
-            center_id,
-            subject,
-            start_time,
-            recurrence_type,
-            day_of_week,
-            is_active
+            ...updateData
         });
 
         res.json({
@@ -480,9 +512,9 @@ const deleteSession = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [result] = await db.query('DELETE FROM sessions WHERE id = ?', [id]);
+        const deletedSession = await Session.findByIdAndDelete(id);
 
-        if (result.affectedRows === 0) {
+        if (!deletedSession) {
             return res.status(404).json({
                 success: false,
                 message: 'Session not found'
@@ -515,90 +547,64 @@ const getAttendanceRecords = async (req, res) => {
     try {
         const { start_date, end_date, center_id, assistant_id, subject, page = 1, limit = 50 } = req.query;
 
-        let query = `
-      SELECT a.id, a.time_recorded, a.delay_minutes, a.notes,
-               u.name as assistant_name, c.name as center_name,
-               s.subject, s.start_time,
-               a.latitude, a.longitude
-        FROM attendance a
-        JOIN users u ON a.assistant_id = u.id
-        JOIN centers c ON a.center_id = c.id
-        JOIN sessions s ON a.session_id = s.id
-        WHERE 1=1
-      `;
+        const query = {};
 
-        const params = [];
-
-        if (start_date) {
-            query += ' AND DATE(a.time_recorded) >= ?';
-            params.push(start_date);
+        if (start_date || end_date) {
+            query.time_recorded = {};
+            if (start_date) {
+                const startDate = new Date(start_date);
+                startDate.setHours(0, 0, 0, 0);
+                query.time_recorded.$gte = startDate;
+            }
+            if (end_date) {
+                const endDate = new Date(end_date);
+                endDate.setHours(23, 59, 59, 999);
+                query.time_recorded.$lte = endDate;
+            }
         }
 
-        if (end_date) {
-            query += ' AND DATE(a.time_recorded) <= ?';
-            params.push(end_date);
-        }
-
-        if (center_id) {
-            query += ' AND a.center_id = ?';
-            params.push(center_id);
-        }
-
-        if (assistant_id) {
-            query += ' AND a.assistant_id = ?';
-            params.push(assistant_id);
-        }
-
-        if (subject) {
-            query += ' AND s.subject LIKE ?';
-            params.push(`%${subject}%`);
-        }
+        if (center_id) query.center_id = center_id;
+        if (assistant_id) query.assistant_id = assistant_id;
 
         // Get total count for pagination
-        let countQuery = `
-      SELECT COUNT(*) as total
-        FROM attendance a
-        JOIN users u ON a.assistant_id = u.id
-        JOIN centers c ON a.center_id = c.id
-        JOIN sessions s ON a.session_id = s.id
-        WHERE 1=1
-      `;
+        const total = await Attendance.countDocuments(query);
 
-        const countParams = [...params]; // Copy params for count
+        // Get records
+        let attendanceQuery = Attendance.find(query)
+            .populate('assistant_id', 'name')
+            .populate('center_id', 'name')
+            .populate('session_id', 'subject start_time')
+            .sort({ time_recorded: -1 })
+            .limit(parseInt(limit))
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .lean();
 
-        if (start_date) {
-            countQuery += ' AND DATE(a.time_recorded) >= ?';
-        }
+        const records = await attendanceQuery;
 
-        if (end_date) {
-            countQuery += ' AND DATE(a.time_recorded) <= ?';
-        }
-
-        if (center_id) {
-            countQuery += ' AND a.center_id = ?';
-        }
-
-        if (assistant_id) {
-            countQuery += ' AND a.assistant_id = ?';
-        }
-
+        // Filter by subject if provided (done after populate)
+        let filteredRecords = records;
         if (subject) {
-            countQuery += ' AND s.subject LIKE ?';
+            filteredRecords = records.filter(r =>
+                r.session_id?.subject?.toLowerCase().includes(subject.toLowerCase())
+            );
         }
 
-        const [countResult] = await db.query(countQuery, countParams);
-        const total = countResult[0].total;
-
-        // Add pagination
-        const offset = (page - 1) * limit;
-        query += ' ORDER BY a.time_recorded DESC LIMIT ? OFFSET ?';
-        params.push(parseInt(limit), parseInt(offset));
-
-        const [records] = await db.query(query, params);
+        const formattedRecords = filteredRecords.map(r => ({
+            id: r._id,
+            time_recorded: r.time_recorded,
+            delay_minutes: r.delay_minutes,
+            notes: r.notes,
+            assistant_name: r.assistant_id?.name || 'Unknown',
+            center_name: r.center_id?.name || 'Unknown',
+            subject: r.session_id?.subject || 'Unknown',
+            start_time: r.session_id?.start_time,
+            latitude: r.latitude,
+            longitude: r.longitude
+        }));
 
         res.json({
             success: true,
-            data: records,
+            data: formattedRecords,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
@@ -616,18 +622,134 @@ const getAttendanceRecords = async (req, res) => {
 };
 
 /**
+ * Record attendance manually (admin only)
+ * POST /api/admin/attendance/manual
+ */
+const recordAttendanceManually = async (req, res) => {
+    try {
+        const { assistant_id, session_id, center_id, delay_minutes = 0, notes = '' } = req.body;
+
+        if (!assistant_id || !session_id || !center_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Assistant, session, and center are required'
+            });
+        }
+
+        // Check if attendance already exists
+        const existing = await Attendance.findOne({
+            assistant_id,
+            session_id
+        });
+
+        if (existing) {
+            return res.status(409).json({
+                success: false,
+                message: 'Attendance record already exists for this assistant and session'
+            });
+        }
+
+        // Get center coordinates for the attendance record
+        const center = await Center.findById(center_id);
+        if (!center) {
+            return res.status(404).json({
+                success: false,
+                message: 'Center not found'
+            });
+        }
+
+        const newAttendance = new Attendance({
+            assistant_id,
+            session_id,
+            center_id,
+            latitude: center.latitude,
+            longitude: center.longitude,
+            delay_minutes,
+            notes: notes || 'Manually recorded by admin'
+        });
+
+        await newAttendance.save();
+
+        // Log the action
+        await logAuditAction(req.user.id, 'MANUAL_ATTENDANCE', {
+            attendance_id: newAttendance._id.toString(),
+            assistant_id,
+            session_id,
+            center_id,
+            delay_minutes
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Attendance recorded successfully',
+            data: { id: newAttendance._id }
+        });
+    } catch (error) {
+        console.error('Record attendance manually error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error recording attendance'
+        });
+    }
+};
+
+/**
+ * Clear/delete attendance record
+ * DELETE /api/admin/attendance/:id
+ */
+const clearAttendance = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const deletedAttendance = await Attendance.findByIdAndDelete(id);
+
+        if (!deletedAttendance) {
+            return res.status(404).json({
+                success: false,
+                message: 'Attendance record not found'
+            });
+        }
+
+        // Log the action
+        await logAuditAction(req.user.id, 'DELETE_ATTENDANCE', {
+            attendance_id: id
+        });
+
+        res.json({
+            success: true,
+            message: 'Attendance record deleted successfully'
+        });
+    } catch (error) {
+        console.error('Clear attendance error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting attendance record'
+        });
+    }
+};
+
+/**
  * Get all users (assistants and admins)
  * GET /api/admin/users
  */
 const getAllUsers = async (req, res) => {
     try {
-        const [users] = await db.query(
-            'SELECT id, name, email, role, created_at FROM users ORDER BY name'
-        );
+        const users = await User.find()
+            .select('_id name email role createdAt')
+            .sort({ name: 1 })
+            .lean();
+
+        const formattedUsers = users.map(u => ({
+            id: u._id,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            created_at: u.createdAt
+        }));
 
         res.json({
             success: true,
-            data: users
+            data: formattedUsers
         });
     } catch (error) {
         console.error('Get users error:', error);
@@ -646,12 +768,11 @@ const getUserById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [users] = await db.query(
-            'SELECT id, name, email, role, created_at FROM users WHERE id = ?',
-            [id]
-        );
+        const user = await User.findById(id)
+            .select('_id name email role createdAt')
+            .lean();
 
-        if (users.length === 0) {
+        if (!user) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -660,7 +781,13 @@ const getUserById = async (req, res) => {
 
         res.json({
             success: true,
-            data: users[0]
+            data: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                created_at: user.createdAt
+            }
         });
     } catch (error) {
         console.error('Get user error:', error);
@@ -687,8 +814,8 @@ const createUser = async (req, res) => {
         }
 
         // Check if email exists
-        const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
-        if (existing.length > 0) {
+        const existing = await User.findOne({ email: email.toLowerCase() });
+        if (existing) {
             return res.status(409).json({
                 success: false,
                 message: 'Email already exists'
@@ -698,15 +825,19 @@ const createUser = async (req, res) => {
         // Hash password
         const passwordHash = await bcrypt.hash(password, 10);
 
-        // Insert user
-        const [result] = await db.query(
-            'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            [name, email, passwordHash, role]
-        );
+        // Create user
+        const newUser = new User({
+            name,
+            email: email.toLowerCase(),
+            password_hash: passwordHash,
+            role
+        });
+
+        await newUser.save();
 
         // Log the action
         await logAuditAction(req.user.id, 'CREATE_USER', {
-            user_id: result.insertId,
+            user_id: newUser._id.toString(),
             name,
             email,
             role
@@ -715,7 +846,7 @@ const createUser = async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'User created successfully',
-            data: { id: result.insertId, name, email, role }
+            data: { id: newUser._id, name, email, role }
         });
     } catch (error) {
         console.error('Create user error:', error);
@@ -735,42 +866,28 @@ const updateUser = async (req, res) => {
         const { id } = req.params;
         const { name, email, role, password } = req.body;
 
-        // Build update query dynamically
-        const updates = [];
-        const params = [];
-
-        if (name) {
-            updates.push('name = ?');
-            params.push(name);
-        }
-        if (email) {
-            updates.push('email = ?');
-            params.push(email);
-        }
-        if (role) {
-            updates.push('role = ?');
-            params.push(role);
-        }
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (email) updateData.email = email.toLowerCase();
+        if (role) updateData.role = role;
         if (password) {
-            // Hash the new password
-            const passwordHash = await bcrypt.hash(password, 10);
-            updates.push('password_hash = ?');
-            params.push(passwordHash);
+            updateData.password_hash = await bcrypt.hash(password, 10);
         }
 
-        if (updates.length === 0) {
+        if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
                 success: false,
                 message: 'No fields to update'
             });
         }
 
-        params.push(id);
-        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        const updatedUser = await User.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true, runValidators: true }
+        );
 
-        const [result] = await db.query(query, params);
-
-        if (result.affectedRows === 0) {
+        if (!updatedUser) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -806,9 +923,9 @@ const deleteUser = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [result] = await db.query('DELETE FROM users WHERE id = ?', [id]);
+        const deletedUser = await User.findByIdAndDelete(id);
 
-        if (result.affectedRows === 0) {
+        if (!deletedUser) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -834,30 +951,30 @@ const deleteUser = async (req, res) => {
 };
 
 /**
- * Change user password (admin only)
- * PUT /api/admin/users/:id/password
+ * Change user password
+ * POST /api/admin/users/:id/password
  */
 const changeUserPassword = async (req, res) => {
     try {
         const { id } = req.params;
-        const { password } = req.body;
+        const { new_password } = req.body;
 
-        if (!password || password.length < 6) {
+        if (!new_password) {
             return res.status(400).json({
                 success: false,
-                message: 'Password must be at least 6 characters long'
+                message: 'New password is required'
             });
         }
 
-        // Hash the new password
-        const passwordHash = await bcrypt.hash(password, 10);
+        const passwordHash = await bcrypt.hash(new_password, 10);
 
-        const [result] = await db.query(
-            'UPDATE users SET password_hash = ? WHERE id = ?',
-            [passwordHash, id]
+        const updatedUser = await User.findByIdAndUpdate(
+            id,
+            { password_hash: passwordHash },
+            { new: true }
         );
 
-        if (result.affectedRows === 0) {
+        if (!updatedUser) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -865,7 +982,7 @@ const changeUserPassword = async (req, res) => {
         }
 
         // Log the action
-        await logAuditAction(req.user.id, 'CHANGE_USER_PASSWORD', {
+        await logAuditAction(req.user.id, 'CHANGE_PASSWORD', {
             user_id: id
         });
 
@@ -883,203 +1000,55 @@ const changeUserPassword = async (req, res) => {
 };
 
 /**
- * Manually record attendance for an assistant (admin only)
- * POST /api/admin/attendance/manual
- */
-const recordAttendanceManually = async (req, res) => {
-    try {
-        const { assistant_id, session_id, time_recorded, notes } = req.body;
-
-        // Validation
-        if (!assistant_id || !session_id) {
-            return res.status(400).json({
-                success: false,
-                message: 'Assistant ID and Session ID are required'
-            });
-        }
-
-        // Get session details
-        const [sessions] = await db.query(
-            `SELECT s.id, s.subject, s.center_id, s.start_time,
-                    c.name as center_name, c.latitude, c.longitude
-             FROM sessions s
-             JOIN centers c ON s.center_id = c.id
-             WHERE s.id = ?`,
-            [session_id]
-        );
-
-        if (sessions.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Session not found'
-            });
-        }
-
-        const session = sessions[0];
-
-        // Check if assistant exists and is an assistant
-        const [assistants] = await db.query(
-            'SELECT id, name FROM users WHERE id = ? AND role = ?',
-            [assistant_id, 'assistant']
-        );
-
-        if (assistants.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Assistant not found'
-            });
-        }
-
-        const assistant = assistants[0];
-
-        // Check if already attended
-        const [existingAttendance] = await db.query(
-            'SELECT id FROM attendance WHERE session_id = ? AND assistant_id = ?',
-            [session_id, assistant_id]
-        );
-
-        if (existingAttendance.length > 0) {
-            return res.status(409).json({
-                success: false,
-                message: 'Attendance already recorded for this assistant and session'
-            });
-        }
-
-        // Calculate delay (if time_recorded is provided, use it; otherwise use current time)
-        const recordTime = time_recorded ? new Date(time_recorded) : new Date();
-        const sessionDate = new Date(session.start_time);
-        const delayMs = recordTime - sessionDate;
-        const delayMinutes = Math.max(0, Math.floor(delayMs / 60000));
-
-        // Record attendance manually (using center's coordinates)
-        const [result] = await db.query(
-            `INSERT INTO attendance
-             (assistant_id, session_id, center_id, time_recorded, delay_minutes, notes, latitude, longitude)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                assistant_id,
-                session_id,
-                session.center_id,
-                recordTime,
-                delayMinutes,
-                notes || 'Manually recorded by admin',
-                session.latitude || 0,  // Use center's lat or 0 fallback
-                session.longitude || 0  // Use center's lng or 0 fallback
-            ]
-        );
-
-        // Log the action
-        await logAuditAction(req.user.id, 'MANUAL_ATTENDANCE_RECORD', {
-            attendance_id: result.insertId,
-            assistant_id,
-            assistant_name: assistant.name,
-            session_id,
-            subject: session.subject,
-            center_id: session.center_id,
-            delay_minutes: delayMinutes,
-            time_recorded: recordTime.toISOString(),
-            notes: notes || null
-        });
-
-        res.json({
-            success: true,
-            message: `Attendance manually recorded for ${assistant.name} - ${session.subject}`,
-            data: {
-                attendance_id: result.insertId,
-                assistant: assistant.name,
-                session: session.subject,
-                center: session.center_name,
-                time_recorded: recordTime.toISOString(),
-                delay_minutes: delayMinutes
-            }
-        });
-
-    } catch (error) {
-        console.error('Manual attendance recording error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error recording attendance manually'
-        });
-    }
-};
-
-/**
- * Get audit logs with filters
+ * Get audit logs
  * GET /api/admin/audit-logs
  */
 const getAuditLogs = async (req, res) => {
     try {
-        const { start_date, end_date, user_id, action, page = 1, limit = 50 } = req.query;
+        const { user_id, action, start_date, end_date, page = 1, limit = 50 } = req.query;
 
-        let query = `
-            SELECT al.id, al.action, al.details, al.created_at,
-                   u.name as user_name, u.email as user_email
-            FROM audit_log al
-            LEFT JOIN users u ON al.user_id = u.id
-            WHERE 1=1
-        `;
+        const query = {};
 
-        const params = [];
+        if (user_id) query.user_id = user_id;
+        if (action) query.action = action;
 
-        if (start_date) {
-            query += ' AND DATE(al.created_at) >= ?';
-            params.push(start_date);
+        if (start_date || end_date) {
+            query.timestamp = {};
+            if (start_date) {
+                const startDate = new Date(start_date);
+                startDate.setHours(0, 0, 0, 0);
+                query.timestamp.$gte = startDate;
+            }
+            if (end_date) {
+                const endDate = new Date(end_date);
+                endDate.setHours(23, 59, 59, 999);
+                query.timestamp.$lte = endDate;
+            }
         }
 
-        if (end_date) {
-            query += ' AND DATE(al.created_at) <= ?';
-            params.push(end_date);
-        }
+        const total = await AuditLog.countDocuments(query);
 
-        if (user_id) {
-            query += ' AND al.user_id = ?';
-            params.push(user_id);
-        }
+        const logs = await AuditLog.find(query)
+            .populate('user_id', 'name email')
+            .sort({ timestamp: -1 })
+            .limit(parseInt(limit))
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .lean();
 
-        if (action) {
-            query += ' AND al.action LIKE ?';
-            params.push(`%${action}%`);
-        }
-
-        // Get total count for pagination
-        let countQuery = `
-            SELECT COUNT(*) as total
-            FROM audit_log al
-            LEFT JOIN users u ON al.user_id = u.id
-            WHERE 1=1
-        `;
-
-        const countParams = [...params]; // Copy params for count
-
-        if (start_date) {
-            countQuery += ' AND DATE(al.created_at) >= ?';
-        }
-
-        if (end_date) {
-            countQuery += ' AND DATE(al.created_at) <= ?';
-        }
-
-        if (user_id) {
-            countQuery += ' AND al.user_id = ?';
-        }
-
-        if (action) {
-            countQuery += ' AND al.action LIKE ?';
-        }
-
-        const [countResult] = await db.query(countQuery, countParams);
-        const total = countResult[0].total;
-
-        // Add pagination
-        const offset = (page - 1) * limit;
-        query += ' ORDER BY al.created_at DESC LIMIT ? OFFSET ?';
-        params.push(parseInt(limit), parseInt(offset));
-
-        const [logs] = await db.query(query, params);
+        const formattedLogs = logs.map(log => ({
+            id: log._id,
+            user_id: log.user_id?._id,
+            user_name: log.user_id?.name || 'Unknown',
+            user_email: log.user_id?.email,
+            action: log.action,
+            details: log.details,
+            timestamp: log.timestamp,
+            ip_address: log.ip_address
+        }));
 
         res.json({
             success: true,
-            data: logs,
+            data: formattedLogs,
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
@@ -1092,89 +1061,6 @@ const getAuditLogs = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error fetching audit logs'
-        });
-    }
-};
-
-/**
- * Clear all attendance records with password verification and backup
- * DELETE /api/admin/attendance/clear
- */
-const clearAttendance = async (req, res) => {
-    try {
-        const { password } = req.body;
-
-        // Verify system password
-        if (!password || password !== 'admin123') {
-            return res.status(403).json({
-                success: false,
-                message: 'Invalid password'
-            });
-        }
-
-        // Create backup before clearing
-        const backupFilename = `attendance_backup_${new Date().toISOString().slice(0, 19).replace(/:/g, '').replace(/-/g, '').replace('T', '_')}.sql`;
-        const backupDir = path.join(__dirname, '..', 'database', 'backups');
-        const backupPath = path.join(backupDir, backupFilename);
-
-        // Get all attendance records for backup
-        const [records] = await db.query('SELECT * FROM attendance ORDER BY id');
-
-        if (records.length > 0) {
-            // Generate SQL INSERT statements
-            let sqlContent = `-- Attendance backup created on ${new Date().toISOString()}\n`;
-            sqlContent += `-- Total records: ${records.length}\n\n`;
-
-            records.forEach(record => {
-                const values = [
-                    record.id,
-                    record.assistant_id,
-                    record.session_id,
-                    record.center_id,
-                    record.latitude ? `'${record.latitude}'` : 'NULL',
-                    record.longitude ? `'${record.longitude}'` : 'NULL',
-                    `'${record.time_recorded.toISOString().slice(0, 19).replace('T', ' ')}'`,
-                    record.delay_minutes,
-                    record.notes ? `'${record.notes.replace(/'/g, "''")}'` : 'NULL'
-                ].join(', ');
-
-                sqlContent += `INSERT INTO attendance (id, assistant_id, session_id, center_id, latitude, longitude, time_recorded, delay_minutes, notes) VALUES (${values});\n`;
-            });
-
-            // Ensure backup directory exists
-            const fs = require('fs').promises;
-            try {
-                await fs.mkdir(backupDir, { recursive: true });
-            } catch (error) {
-                // Directory might already exist, ignore error
-            }
-
-            // Write backup file
-            await fs.writeFile(backupPath, sqlContent, 'utf8');
-        }
-
-        // Clear attendance table
-        await db.query('TRUNCATE TABLE attendance');
-
-        // Log the action
-        await logAuditAction(req.user.id, 'CLEAR_ATTENDANCE', {
-            backup_filename: backupFilename,
-            records_cleared: records.length
-        });
-
-        res.json({
-            success: true,
-            message: `All attendance records cleared successfully. ${records.length} records backed up to ${backupFilename}`,
-            data: {
-                backup_filename: backupFilename,
-                records_cleared: records.length
-            }
-        });
-    } catch (error) {
-        console.error('Clear attendance error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error clearing attendance records'
         });
     }
 };

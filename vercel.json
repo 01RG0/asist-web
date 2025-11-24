@@ -1,0 +1,42 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "backend/server.js",
+            "use": "@vercel/node"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "/backend/server.js"
+        },
+        {
+            "src": "/assistant/(.*)",
+            "dest": "/frontend/assistant/$1"
+        },
+        {
+            "src": "/admin/(.*)",
+            "dest": "/frontend/admin/$1"
+        },
+        {
+            "src": "/shared/(.*)",
+            "dest": "/frontend/shared/$1"
+        },
+        {
+            "src": "/(.*\\.(css|js|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf))",
+            "dest": "/frontend/$1"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/frontend/$1"
+        }
+    ],
+    "env": {
+        "MONGODB_URI": "@mongodb_uri",
+        "JWT_SECRET": "@jwt_secret",
+        "JWT_EXPIRES_IN": "30d",
+        "JWT_REFRESH_EXPIRES_IN": "90d",
+        "NODE_ENV": "production"
+    }
+}

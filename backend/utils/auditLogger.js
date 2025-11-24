@@ -1,30 +1,28 @@
-const db = require('../config/database');
+const AuditLog = require('../models/AuditLog');
 
 /**
  * Log audit action
- * @param {number} userId - User performing the action
+ * @param {string} userId - MongoDB ObjectId of user performing the action
  * @param {string} action - Action description
  * @param {object} details - Additional details
+ * @param {string} ipAddress - Optional IP address
+ * @param {string} userAgent - Optional user agent
  */
-const logAuditAction = async (userId, action, details = {}) => {
+const logAuditAction = async (userId, action, details = {}, ipAddress = null, userAgent = null) => {
     try {
         // Validate inputs
         if (!userId || !action) {
             console.warn('Audit logging skipped: Missing userId or action');
-            return;
+            return null;
         }
 
-        // Ensure details is an object
-        const sanitizedDetails = details || {};
-        
-        // Insert the audit log
-        await db.query(
-            'INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)',
-            [userId, action, JSON.stringify(sanitizedDetails)]
-        );
+        // Use the static method from AuditLog model
+        const log = await AuditLog.logAction(userId, action, details, ipAddress, userAgent);
+        return log;
     } catch (error) {
         console.error('Audit logging error:', error.message);
         // Don't throw error to avoid breaking main functionality
+        return null;
     }
 };
 
@@ -48,7 +46,7 @@ const logUserLogout = async (userId) => {
     });
 };
 
-module.exports = { 
+module.exports = {
     logAuditAction,
     logUserLogin,
     logUserLogout
