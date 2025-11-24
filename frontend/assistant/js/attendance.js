@@ -166,7 +166,7 @@ confirmBtn.addEventListener('click', async () => {
 
     try {
         const response = await window.api.makeRequest('POST', '/attendance/record', {
-            session_id: parseInt(sessionId),
+            session_id: sessionId,
             latitude: userLoc.lat,
             longitude: userLoc.lng
         });

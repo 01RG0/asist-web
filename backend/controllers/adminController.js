@@ -439,9 +439,21 @@ const createSession = async (req, res) => {
         });
     } catch (error) {
         console.error('Create session error:', error);
+
+        // Return detailed validation errors
+        if (error.name === 'ValidationError') {
+            const errors = Object.values(error.errors).map(e => e.message);
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors
+            });
+        }
+
         res.status(500).json({
             success: false,
-            message: 'Error creating session'
+            message: 'Error creating session',
+            error: error.message
         });
     }
 };
@@ -724,6 +736,111 @@ const clearAttendance = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error deleting attendance record'
+        });
+    }
+};
+
+/**
+ * Get single attendance record by ID
+ * GET /api/admin/attendance/:id
+ */
+const getAttendanceById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const attendance = await Attendance.findById(id)
+            .populate('assistant_id', 'name email')
+            .populate('session_id', 'subject start_time')
+            .populate('center_id', 'name')
+            .lean();
+
+        if (!attendance) {
+            return res.status(404).json({
+                success: false,
+                message: 'Attendance record not found'
+            });
+        }
+
+        const formattedAttendance = {
+            id: attendance._id,
+            assistant_id: attendance.assistant_id?._id,
+            assistant_name: attendance.assistant_id?.name || 'Unknown',
+            session_id: attendance.session_id?._id,
+            session_subject: attendance.session_id?.subject || 'Unknown',
+            center_id: attendance.center_id?._id,
+            center_name: attendance.center_id?.name || 'Unknown',
+            time_recorded: attendance.time_recorded,
+            delay_minutes: attendance.delay_minutes,
+            latitude: attendance.latitude,
+            longitude: attendance.longitude,
+            notes: attendance.notes || ''
+        };
+
+        res.json({
+            success: true,
+            data: formattedAttendance
+        });
+    } catch (error) {
+        console.error('Get attendance error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching attendance record'
+        });
+    }
+};
+
+/**
+ * Update attendance record
+ * PUT /api/admin/attendance/:id
+ */
+const updateAttendance = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { assistant_id, session_id, center_id, time_recorded, delay_minutes, notes } = req.body;
+
+        const updateData = {};
+        if (assistant_id) updateData.assistant_id = assistant_id;
+        if (session_id) updateData.session_id = session_id;
+        if (center_id) updateData.center_id = center_id;
+        if (time_recorded) updateData.time_recorded = new Date(time_recorded);
+        if (delay_minutes !== undefined) updateData.delay_minutes = parseInt(delay_minutes);
+        if (notes !== undefined) updateData.notes = notes;
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No fields to update'
+            });
+        }
+
+        const updatedAttendance = await Attendance.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedAttendance) {
+            return res.status(404).json({
+                success: false,
+                message: 'Attendance record not found'
+            });
+        }
+
+        // Log the action
+        await logAuditAction(req.user.id, 'UPDATE_ATTENDANCE', {
+            attendance_id: id,
+            ...updateData
+        });
+
+        res.json({
+            success: true,
+            message: 'Attendance record updated successfully'
+        });
+    } catch (error) {
+        console.error('Update attendance error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating attendance record'
         });
     }
 };
@@ -1077,7 +1194,9 @@ module.exports = {
     updateSession,
     deleteSession,
     getAttendanceRecords,
+    getAttendanceById,
     recordAttendanceManually,
+    updateAttendance,
     clearAttendance,
     getAllUsers,
     getUserById,

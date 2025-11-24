@@ -99,7 +99,7 @@ function displayAttendance(records) {
     if (!records || records.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="text-center">No attendance records found.</td>
+                <td colspan="8" class="text-center">No attendance records found.</td>
             </tr>
         `;
         return;
@@ -127,6 +127,15 @@ function displayAttendance(records) {
                 <td>${attendanceTime}</td>
                 <td>${statusBadge}</td>
                 <td>${delayBadge}</td>
+                <td>
+                    <button class="btn btn-outline btn-sm edit-attendance-btn" data-id="${record.id}" title="Edit Attendance">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                        Edit
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
@@ -222,13 +231,16 @@ function exportToExcel() {
 // Manual Attendance Modal
 let allAssistants = [];
 let allSessions = [];
+let allCenters = [];
+let currentEditingAttendanceId = null;
 
-// Load assistants and sessions for manual attendance
+// Load assistants, sessions, and centers for attendance management
 async function loadManualAttendanceData() {
     try {
-        const [assistantsResponse, sessionsResponse] = await Promise.all([
+        const [assistantsResponse, sessionsResponse, centersResponse] = await Promise.all([
             window.api.makeRequest('GET', '/admin/users'),
-            window.api.makeRequest('GET', '/admin/sessions')
+            window.api.makeRequest('GET', '/admin/sessions'),
+            window.api.makeRequest('GET', '/centers')
         ]);
 
         if (assistantsResponse.success) {
@@ -238,8 +250,12 @@ async function loadManualAttendanceData() {
         if (sessionsResponse.success) {
             allSessions = sessionsResponse.data;
         }
+
+        if (centersResponse.success) {
+            allCenters = centersResponse.data;
+        }
     } catch (error) {
-        console.error('Error loading manual attendance data:', error);
+        console.error('Error loading attendance data:', error);
     }
 }
 
@@ -315,8 +331,8 @@ async function handleManualAttendanceSubmit(e) {
 
     try {
         const response = await window.api.makeRequest('POST', '/admin/attendance/manual', {
-            assistant_id: parseInt(assistantId),
-            session_id: parseInt(sessionId),
+            assistant_id: assistantId,
+            session_id: sessionId,
             time_recorded: timeRecorded || null,
             notes: notes || null
         });
@@ -445,6 +461,157 @@ document.getElementById('clear-attendance-modal').addEventListener('click', (e) 
         closeClearAttendanceModal();
     }
 });
+
+// Edit attendance modal events
+document.getElementById('attendance-table').addEventListener('click', (e) => {
+    if (e.target.closest('.edit-attendance-btn')) {
+        const button = e.target.closest('.edit-attendance-btn');
+        const attendanceId = button.getAttribute('data-id');
+        openEditAttendanceModal(attendanceId);
+    }
+});
+
+document.getElementById('close-edit-modal').addEventListener('click', closeEditAttendanceModal);
+document.getElementById('cancel-edit-btn').addEventListener('click', closeEditAttendanceModal);
+document.getElementById('edit-attendance-form').addEventListener('submit', handleEditAttendanceSubmit);
+
+// Close edit modal when clicking outside
+document.getElementById('edit-attendance-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'edit-attendance-modal') {
+        closeEditAttendanceModal();
+    }
+});
+
+// Edit Attendance Modal
+function openEditAttendanceModal(attendanceId) {
+    currentEditingAttendanceId = attendanceId;
+    const modal = document.getElementById('edit-attendance-modal');
+    const assistantSelect = document.getElementById('edit-assistant');
+    const sessionSelect = document.getElementById('edit-session');
+    const centerSelect = document.getElementById('edit-center');
+
+    // Populate assistants
+    assistantSelect.innerHTML = '<option value="">Select Assistant</option>';
+    allAssistants.forEach(assistant => {
+        const option = document.createElement('option');
+        option.value = assistant.id;
+        option.textContent = assistant.name;
+        assistantSelect.appendChild(option);
+    });
+
+    // Populate sessions
+    sessionSelect.innerHTML = '<option value="">Select Session</option>';
+    allSessions.forEach(session => {
+        const option = document.createElement('option');
+        option.value = session.id;
+        option.textContent = `${session.subject} - ${session.center_name} (${new Date(session.start_time).toLocaleDateString()})`;
+        sessionSelect.appendChild(option);
+    });
+
+    // Populate centers
+    centerSelect.innerHTML = '<option value="">Select Center</option>';
+    allCenters.forEach(center => {
+        const option = document.createElement('option');
+        option.value = center.id;
+        option.textContent = center.name;
+        centerSelect.appendChild(option);
+    });
+
+    // Load current attendance data
+    loadAttendanceDataForEdit(attendanceId);
+
+    modal.style.display = 'flex';
+    // Add active class to trigger CSS transitions
+    setTimeout(() => {
+        modal.classList.add('active');
+    }, 10);
+}
+
+function closeEditAttendanceModal() {
+    const modal = document.getElementById('edit-attendance-modal');
+    const form = document.getElementById('edit-attendance-form');
+
+    // Remove active class to trigger fade out
+    modal.classList.remove('active');
+
+    // Wait for transition to complete before hiding
+    setTimeout(() => {
+        modal.style.display = 'none';
+        form.reset();
+        currentEditingAttendanceId = null;
+    }, 300);
+}
+
+async function loadAttendanceDataForEdit(attendanceId) {
+    try {
+        const response = await window.api.makeRequest('GET', `/admin/attendance/${attendanceId}`);
+
+        if (response.success) {
+            const attendance = response.data;
+
+            // Populate form fields
+            document.getElementById('edit-assistant').value = attendance.assistant_id || '';
+            document.getElementById('edit-session').value = attendance.session_id || '';
+            document.getElementById('edit-center').value = attendance.center_id || '';
+
+            // Format datetime for input
+            const timeRecorded = new Date(attendance.time_recorded);
+            timeRecorded.setMinutes(timeRecorded.getMinutes() - timeRecorded.getTimezoneOffset());
+            document.getElementById('edit-time-recorded').value = timeRecorded.toISOString().slice(0, 16);
+
+            document.getElementById('edit-delay-minutes').value = attendance.delay_minutes || 0;
+            document.getElementById('edit-notes').value = attendance.notes || '';
+        }
+    } catch (error) {
+        console.error('Error loading attendance data for edit:', error);
+        showAlert('Failed to load attendance data', 'error');
+        closeEditAttendanceModal();
+    }
+}
+
+async function handleEditAttendanceSubmit(e) {
+    e.preventDefault();
+
+    const assistantId = document.getElementById('edit-assistant').value;
+    const sessionId = document.getElementById('edit-session').value;
+    const centerId = document.getElementById('edit-center').value;
+    const timeRecorded = document.getElementById('edit-time-recorded').value;
+    const delayMinutes = document.getElementById('edit-delay-minutes').value;
+    const notes = document.getElementById('edit-notes').value;
+
+    if (!assistantId || !sessionId || !centerId || !timeRecorded) {
+        showAlert('Please fill in all required fields', 'error');
+        return;
+    }
+
+    const saveBtn = document.getElementById('save-edit-btn');
+    const originalText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Updating...';
+
+    try {
+        const response = await window.api.makeRequest('PUT', `/admin/attendance/${currentEditingAttendanceId}`, {
+            assistant_id: assistantId,
+            session_id: sessionId,
+            center_id: centerId,
+            time_recorded: timeRecorded,
+            delay_minutes: parseInt(delayMinutes) || 0,
+            notes: notes || null
+        });
+
+        if (response.success) {
+            showAlert(response.message, 'success');
+            closeEditAttendanceModal();
+            // Refresh attendance records
+            loadAttendance(currentFilters, currentPage);
+        }
+    } catch (error) {
+        showAlert(error.message || 'Failed to update attendance', 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+    }
+}
 
 // Initialize
 initializeSidebar();

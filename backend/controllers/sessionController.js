@@ -70,6 +70,22 @@ const getTodaySessions = async (req, res) => {
 
             const center = session.center_id;
 
+            // Check if session is within attendance marking window
+            // Allow 45 minutes before and 45 minutes after session start (90-minute window)
+            const now = new Date();
+            const sessionStartTime = new Date(session.start_time);
+
+            // For weekly sessions, adjust to today's time
+            if (session.recurrence_type === 'weekly') {
+                const todayDate = new Date();
+                todayDate.setHours(sessionStartTime.getHours(), sessionStartTime.getMinutes(), 0, 0);
+                sessionStartTime.setTime(todayDate.getTime());
+            }
+
+            const timeDiffMs = now - sessionStartTime;
+            const timeDiffMinutes = Math.floor(timeDiffMs / 60000);
+            const canMarkAttendance = !attendance && timeDiffMinutes >= -45 && timeDiffMinutes <= 45;
+
             return {
                 id: session._id,
                 subject: session.subject,
@@ -83,7 +99,8 @@ const getTodaySessions = async (req, res) => {
                 radius_m: center.radius_m,
                 attendance_id: attendance ? attendance._id : null,
                 recurrence_type: session.recurrence_type,
-                attended: attendance !== null
+                attended: attendance !== null,
+                can_mark_attendance: canMarkAttendance
             };
         }));
 

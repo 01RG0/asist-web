@@ -370,7 +370,7 @@ function displayLogs(logs) {
     }
 
     tbody.innerHTML = logs.map(log => {
-        const timestamp = new Date(log.created_at).toLocaleString('en-US', {
+        const timestamp = new Date(log.timestamp).toLocaleString('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric',
@@ -470,7 +470,17 @@ function updateRecordsCount(total) {
 
 function formatDetails(detailsJson) {
     try {
-        const details = JSON.parse(detailsJson);
+        let details;
+
+        // Handle both string and object formats
+        if (typeof detailsJson === 'string') {
+            details = JSON.parse(detailsJson);
+        } else if (typeof detailsJson === 'object' && detailsJson !== null) {
+            details = detailsJson;
+        } else {
+            return '<span class="text-gray">Invalid details format</span>';
+        }
+
         const entries = Object.entries(details);
 
         if (entries.length === 0) {
@@ -492,7 +502,7 @@ function showLogDetails(logId) {
 
     // Create a simple modal or expand the row to show full details
     const details = formatDetails(log.details);
-    const timestamp = new Date(log.created_at).toLocaleString('en-US', {
+    const timestamp = new Date(log.timestamp).toLocaleString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
@@ -507,7 +517,7 @@ Log Details:
 Action: ${log.action}
 User: ${log.user_name} (${log.user_email})
 Timestamp: ${timestamp}
-Details: ${JSON.stringify(JSON.parse(log.details), null, 2)}
+Details: ${JSON.stringify(log.details, null, 2)}
     `;
 
     alert(message);
@@ -520,9 +530,19 @@ function exportToExcel() {
     }
 
     const data = allLogs.map(log => {
-        const details = JSON.parse(log.details || '{}');
+        let details = {};
+        if (typeof log.details === 'string') {
+            try {
+                details = JSON.parse(log.details || '{}');
+            } catch (e) {
+                details = {};
+            }
+        } else if (typeof log.details === 'object' && log.details !== null) {
+            details = log.details;
+        }
+
         return {
-            'Timestamp': new Date(log.created_at).toLocaleString('en-US'),
+            'Timestamp': new Date(log.timestamp).toLocaleString('en-US'),
             'User Name': log.user_name || 'Unknown',
             'User Email': log.user_email || 'Unknown',
             'Action': log.action,

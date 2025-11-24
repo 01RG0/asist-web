@@ -2,7 +2,7 @@
 
 body {
     min-height: 100vh;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #e0f2fe 0%, #f0fdf4 100%);
 }
 
 .login-container {
@@ -35,7 +35,7 @@ body {
 .logo-circle {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #0ea5e9, #10b981);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -95,7 +95,7 @@ body {
 
 /* Sessions Page */
 .header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0ea5e9 0%, #10b981 100%);
     color: white;
     padding: var(--spacing-xl) var(--spacing-lg);
     box-shadow: var(--shadow-lg);
@@ -166,7 +166,7 @@ body {
     padding: var(--spacing-lg);
     box-shadow: var(--shadow-md);
     transition: all var(--transition-normal);
-    border-left: 4px solid var(--primary-color);
+    border-left: 4px solid #0ea5e9;
 }
 
 .session-card:hover {
@@ -201,13 +201,15 @@ body {
 }
 
 .badge-pending {
-    background: #fef3c7;
-    color: #92400e;
+    background: #fefce8;
+    color: #a16207;
+    border: 1px solid #fbbf24;
 }
 
 .badge-attended {
-    background: #d1fae5;
-    color: #065f46;
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #10b981;
 }
 
 .session-info {
@@ -299,18 +301,21 @@ body {
 }
 
 .gps-status.checking {
-    background: #fef3c7;
-    color: #92400e;
+    background: #fefce8;
+    color: #a16207;
+    border: 1px solid #fbbf24;
 }
 
 .gps-status.valid {
-    background: #d1fae5;
-    color: #065f46;
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #10b981;
 }
 
 .gps-status.invalid {
-    background: #fee2e2;
+    background: #fef2f2;
     color: #991b1b;
+    border: 1px solid #ef4444;
 }
 
 /* Responsive */

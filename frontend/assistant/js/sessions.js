@@ -53,9 +53,20 @@ function formatTime(timeString) {
 // Render session card
 function renderSessionCard(session) {
   const isAttended = session.attended;
+  const canMark = session.can_mark_attendance;
   const badgeClass = isAttended ? 'badge-attended' : 'badge-pending';
   const badgeText = isAttended ? 'Attended' : 'Pending';
   const cardClass = isAttended ? 'session-card attended' : 'session-card';
+
+  // Determine button state
+  let buttonHtml;
+  if (isAttended) {
+    buttonHtml = '<button class="btn btn-secondary" disabled>✓ Attendance Recorded</button>';
+  } else if (!canMark) {
+    buttonHtml = '<button class="btn btn-secondary" disabled>⏱ Attendance Window Closed</button>';
+  } else {
+    buttonHtml = `<button class="btn btn-primary" onclick="goToAttendance('${session.id}')">Mark Attendance</button>`;
+  }
 
   return `
     <div class="${cardClass}">
@@ -82,10 +93,7 @@ function renderSessionCard(session) {
         </div>
       </div>
       
-      ${isAttended
-      ? '<button class="btn btn-secondary" disabled>✓ Attendance Recorded</button>'
-      : `<button class="btn btn-primary" onclick="goToAttendance(${session.id})">Mark Attendance</button>`
-    }
+      ${buttonHtml}
     </div>
   `;
 }

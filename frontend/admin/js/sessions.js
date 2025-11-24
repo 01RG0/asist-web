@@ -214,8 +214,8 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
     const sessionData = {
         subject: document.getElementById('session-subject').value,
         start_time: startTime,
-        center_id: parseInt(document.getElementById('session-center').value),
-        assistant_id: assistantId ? parseInt(assistantId) : null,
+        center_id: document.getElementById('session-center').value,
+        assistant_id: assistantId || null,
         recurrence_type: recurrenceType,
         day_of_week: dayOfWeek ? parseInt(dayOfWeek) : null
     };

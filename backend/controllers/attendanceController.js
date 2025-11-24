@@ -88,7 +88,38 @@ const recordAttendance = async (req, res) => {
         }
 
         const delayMs = now - sessionTime;
-        const delayMinutes = Math.max(0, Math.floor(delayMs / 60000));
+        const delayMinutes = Math.floor(delayMs / 60000); // Can be negative if early
+
+        // Check if attendance is being marked within the allowed time window
+        // Allow 45 minutes before and 45 minutes after session start (90-minute window)
+        const maxEarlyMinutes = 45;
+        const maxLateMinutes = 45;
+
+        if (delayMinutes < -maxEarlyMinutes) {
+            return res.status(400).json({
+                success: false,
+                message: `You are too early. You can mark attendance starting from ${maxEarlyMinutes} minutes before the session.`,
+                data: {
+                    session_start_time: sessionTime.toISOString(),
+                    minutes_until_window_opens: Math.abs(delayMinutes) - maxEarlyMinutes
+                }
+            });
+        }
+
+        if (delayMinutes > maxLateMinutes) {
+            return res.status(400).json({
+                success: false,
+                message: `Attendance window has closed. You can only mark attendance within ${maxLateMinutes} minutes after the session start time.`,
+                data: {
+                    session_start_time: sessionTime.toISOString(),
+                    current_delay_minutes: delayMinutes,
+                    max_allowed_minutes: maxLateMinutes
+                }
+            });
+        }
+
+        // Calculate actual delay (0 if marked early, positive if late)
+        const actualDelayMinutes = Math.max(0, delayMinutes);
 
         // Record attendance
         const newAttendance = new Attendance({
@@ -98,7 +129,7 @@ const recordAttendance = async (req, res) => {
             latitude,
             longitude,
             time_recorded: now,
-            delay_minutes: delayMinutes,
+            delay_minutes: actualDelayMinutes,
             notes: notes || ''
         });
 

@@ -212,6 +212,7 @@
                             <th>Time</th>
                             <th>Status</th>
                             <th>Delay</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="attendance-table">
@@ -310,13 +311,71 @@
                     <div class="form-group">
                         <label class="form-label">Enter System Password</label>
                         <input type="password" id="clear-password" class="form-input" required
-                               placeholder="Enter password to confirm">
+                            placeholder="Enter password to confirm">
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline" id="cancel-clear-btn">Cancel</button>
-                <button type="submit" form="clear-attendance-form" class="btn btn-danger" id="confirm-clear-btn">Clear All Records</button>
+                <button type="submit" form="clear-attendance-form" class="btn btn-danger" id="confirm-clear-btn">Clear
+                    All Records</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Attendance Modal -->
+    <div class="modal-overlay" id="edit-attendance-modal">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>Edit Attendance Record</h3>
+                <button class="modal-close" id="close-edit-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-attendance-form">
+                    <div class="form-group">
+                        <label class="form-label">Assistant *</label>
+                        <select id="edit-assistant" class="form-select" required>
+                            <option value="">Select Assistant</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Session *</label>
+                        <select id="edit-session" class="form-select" required>
+                            <option value="">Select Session</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Center *</label>
+                        <select id="edit-center" class="form-select" required>
+                            <option value="">Select Center</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Time Recorded</label>
+                        <input type="datetime-local" id="edit-time-recorded" class="form-input" required>
+                        <small style="color: var(--text-secondary);">When the attendance was recorded</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Delay (minutes)</label>
+                        <input type="number" id="edit-delay-minutes" class="form-input" min="0" placeholder="0">
+                        <small style="color: var(--text-secondary);">Minutes late (0 = on time)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Notes</label>
+                        <textarea id="edit-notes" class="form-input" rows="3"
+                            placeholder="Optional notes about this attendance record"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" id="cancel-edit-btn">Cancel</button>
+                <button type="submit" form="edit-attendance-form" class="btn btn-primary" id="save-edit-btn">Update
+                    Attendance</button>
             </div>
         </div>
     </div>

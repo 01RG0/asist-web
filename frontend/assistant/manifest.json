@@ -5,7 +5,7 @@
     "start_url": "/frontend/assistant/index.html",
     "display": "standalone",
     "background_color": "#ffffff",
-    "theme_color": "#6366f1",
+    "theme_color": "#0ea5e9",
     "orientation": "portrait",
     "icons": [
         {
