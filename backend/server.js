@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
+const mongoose = require('mongoose');
 
 // MongoDB connection
 const connectDB = require('./config/database');
@@ -48,6 +49,22 @@ app.use('/api/admin/backups', backupRoutes);
 app.use('/api/log', logRoutes); // expose log endpoint
 
 /* ---------- Health check ---------- */
+app.get('/api/health', (req, res) => {
+    const dbStatus = mongoose.connection.readyState;
+    const statusMap = {
+        0: 'disconnected',
+        1: 'connected',
+        2: 'connecting',
+        3: 'disconnecting'
+    };
+
+    res.json({
+        status: 'ok',
+        timestamp: new Date(),
+        database: statusMap[dbStatus] || 'unknown',
+        env: process.env.NODE_ENV
+    });
+});
 app.get('/health', (req, res) => {
     res.json({
         success: true,
