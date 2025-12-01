@@ -10,6 +10,9 @@ const connectDB = require('./config/database');
 // Unified logger
 const logger = require('./utils/logger');
 
+// Error handler
+const errorHandler = require('./middleware/errorHandler');
+
 // Route imports
 const authRoutes = require('./routes/authRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
@@ -117,16 +120,8 @@ app.use((req, res) => {
 });
 
 /* ---------- Error handler ---------- */
-app.use((err, req, res, next) => {
-    console.error('Error:', err);
-    // ALWAYS return error details for debugging purposes
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: err.message,
-        stack: err.stack
-    });
-});
+// Use centralized error handler with logging
+app.use(errorHandler);
 
 /* ---------- Server startup ---------- */
 // Start server only if not in Vercel serverless environment

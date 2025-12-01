@@ -573,12 +573,23 @@ document.getElementById('edit-attendance-modal').addEventListener('click', (e) =
 });
 
 // Edit Attendance Modal
-function openEditAttendanceModal(attendanceId) {
+async function openEditAttendanceModal(attendanceId) {
     currentEditingAttendanceId = attendanceId;
     const modal = document.getElementById('edit-attendance-modal');
     const assistantSelect = document.getElementById('edit-assistant');
     const sessionSelect = document.getElementById('edit-session');
     const centerSelect = document.getElementById('edit-center');
+
+    // Show modal first
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        modal.classList.add('active');
+    }, 10);
+
+    // Ensure data is loaded before populating dropdowns
+    if (allAssistants.length === 0 || allSessions.length === 0 || allCenters.length === 0) {
+        await loadManualAttendanceData();
+    }
 
     // Populate assistants
     assistantSelect.innerHTML = '<option value="">Select Assistant</option>';
@@ -607,14 +618,8 @@ function openEditAttendanceModal(attendanceId) {
         centerSelect.appendChild(option);
     });
 
-    // Load current attendance data
-    loadAttendanceDataForEdit(attendanceId);
-
-    modal.style.display = 'flex';
-    // Add active class to trigger CSS transitions
-    setTimeout(() => {
-        modal.classList.add('active');
-    }, 10);
+    // Load current attendance data AFTER dropdowns are populated
+    await loadAttendanceDataForEdit(attendanceId);
 }
 
 function closeEditAttendanceModal() {
@@ -639,10 +644,54 @@ async function loadAttendanceDataForEdit(attendanceId) {
         if (response.success) {
             const attendance = response.data;
 
-            // Populate form fields
-            document.getElementById('edit-assistant').value = attendance.assistant_id || '';
-            document.getElementById('edit-session').value = attendance.session_id || '';
-            document.getElementById('edit-center').value = attendance.center_id || '';
+            // Convert IDs to strings for comparison (MongoDB ObjectIds)
+            const assistantId = attendance.assistant_id ? String(attendance.assistant_id) : '';
+            const sessionId = attendance.session_id ? String(attendance.session_id) : '';
+            const centerId = attendance.center_id ? String(attendance.center_id) : '';
+
+            // Populate form fields - ensure dropdowns are ready
+            const assistantSelect = document.getElementById('edit-assistant');
+            const sessionSelect = document.getElementById('edit-session');
+            const centerSelect = document.getElementById('edit-center');
+
+            // Set values - convert option values to strings for comparison
+            if (assistantId && assistantSelect) {
+                // Find matching option by comparing string values
+                const assistantOption = Array.from(assistantSelect.options).find(
+                    opt => String(opt.value) === assistantId
+                );
+                if (assistantOption) {
+                    assistantSelect.value = assistantId;
+                } else {
+                    console.warn('Assistant ID not found in dropdown:', assistantId);
+                }
+            }
+
+            if (sessionId && sessionSelect) {
+                const sessionOption = Array.from(sessionSelect.options).find(
+                    opt => String(opt.value) === sessionId
+                );
+                if (sessionOption) {
+                    sessionSelect.value = sessionId;
+                } else {
+                    console.warn('Session ID not found in dropdown:', sessionId);
+                    // If session is deleted, show a message
+                    if (!sessionOption) {
+                        showAlert('Warning: Session may have been deleted. Please select a valid session.', 'warning');
+                    }
+                }
+            }
+
+            if (centerId && centerSelect) {
+                const centerOption = Array.from(centerSelect.options).find(
+                    opt => String(opt.value) === centerId
+                );
+                if (centerOption) {
+                    centerSelect.value = centerId;
+                } else {
+                    console.warn('Center ID not found in dropdown:', centerId);
+                }
+            }
 
             // Format datetime for input
             const timeRecorded = new Date(attendance.time_recorded);
@@ -651,10 +700,13 @@ async function loadAttendanceDataForEdit(attendanceId) {
 
             document.getElementById('edit-delay-minutes').value = attendance.delay_minutes || 0;
             document.getElementById('edit-notes').value = attendance.notes || '';
+        } else {
+            showAlert(response.message || 'Failed to load attendance data', 'error');
+            closeEditAttendanceModal();
         }
     } catch (error) {
         console.error('Error loading attendance data for edit:', error);
-        showAlert('Failed to load attendance data', 'error');
+        showAlert(error.message || 'Failed to load attendance data', 'error');
         closeEditAttendanceModal();
     }
 }

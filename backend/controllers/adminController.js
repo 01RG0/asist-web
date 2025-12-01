@@ -3,8 +3,11 @@ const Center = require('../models/Center');
 const Session = require('../models/Session');
 const Attendance = require('../models/Attendance');
 const AuditLog = require('../models/AuditLog');
+const ErrorLog = require('../models/ErrorLog');
 const bcrypt = require('bcryptjs');
+const moment = require('moment-timezone');
 const { logAuditAction } = require('../utils/auditLogger');
+const { logError } = require('../utils/errorLogger');
 const { parseAsEgyptTime, getCurrentEgyptTime, getEgyptTimeDifferenceMinutes } = require('../utils/timezone');
 
 /**
@@ -13,10 +16,12 @@ const { parseAsEgyptTime, getCurrentEgyptTime, getEgyptTimeDifferenceMinutes } =
  */
 const getDashboardStats = async (req, res) => {
     try {
-        const today = getCurrentEgyptTime();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        // Get today's date in Egypt timezone using moment
+        const now = getCurrentEgyptTime();
+        const todayMoment = moment.tz(now, 'Africa/Cairo').startOf('day');
+        const today = todayMoment.toDate();
+        const tomorrowMoment = todayMoment.clone().add(1, 'day');
+        const tomorrow = tomorrowMoment.toDate();
 
         // Today's attendance count
         const totalAttendanceToday = await Attendance.countDocuments({
@@ -38,8 +43,8 @@ const getDashboardStats = async (req, res) => {
         // Total centers
         const totalCenters = await Center.countDocuments();
 
-        // Active sessions today (one-time and weekly)
-        const jsDay = today.getDay();
+        // Active sessions today (one-time and weekly) - get day of week in Egypt timezone
+        const jsDay = todayMoment.day();
         const ourDayOfWeek = jsDay === 0 ? 7 : jsDay;
 
         const activeSessions = await Session.countDocuments({
@@ -288,10 +293,10 @@ const getAllSessions = async (req, res) => {
         const query = { is_active: true };
 
         if (date) {
-            const targetDate = parseAsEgyptTime(date);
-            targetDate.setHours(0, 0, 0, 0);
-            const nextDay = new Date(targetDate);
-            nextDay.setDate(nextDay.getDate() + 1);
+            const targetDateMoment = moment.tz(date, 'Africa/Cairo').startOf('day');
+            const targetDate = targetDateMoment.toDate();
+            const nextDayMoment = targetDateMoment.clone().add(1, 'day');
+            const nextDay = nextDayMoment.toDate();
 
             query.start_time = {
                 $gte: targetDate,
@@ -525,18 +530,34 @@ const deleteSession = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const deletedSession = await Session.findByIdAndDelete(id);
+        // Get session before deletion to preserve subject
+        const sessionToDelete = await Session.findById(id);
 
-        if (!deletedSession) {
+        if (!sessionToDelete) {
             return res.status(404).json({
                 success: false,
                 message: 'Session not found'
             });
         }
 
+        // Preserve session subject in all related attendance records before deletion
+        // This ensures attendance records retain the session name even after deletion
+        await Attendance.updateMany(
+            { session_id: id },
+            { 
+                $set: { 
+                    session_subject: sessionToDelete.subject 
+                } 
+            }
+        );
+
+        // Now delete the session
+        await Session.findByIdAndDelete(id);
+
         // Log the action
         await logAuditAction(req.user.id, 'DELETE_SESSION', {
-            session_id: id
+            session_id: id,
+            session_subject: sessionToDelete.subject
         });
 
         res.json({
@@ -565,14 +586,12 @@ const getAttendanceRecords = async (req, res) => {
         if (start_date || end_date) {
             query.time_recorded = {};
             if (start_date) {
-                const startDate = parseAsEgyptTime(start_date);
-                startDate.setHours(0, 0, 0, 0);
-                query.time_recorded.$gte = startDate;
+                const startDateMoment = moment.tz(start_date, 'Africa/Cairo').startOf('day');
+                query.time_recorded.$gte = startDateMoment.toDate();
             }
             if (end_date) {
-                const endDate = parseAsEgyptTime(end_date);
-                endDate.setHours(23, 59, 59, 999);
-                query.time_recorded.$lte = endDate;
+                const endDateMoment = moment.tz(end_date, 'Africa/Cairo').endOf('day');
+                query.time_recorded.$lte = endDateMoment.toDate();
             }
         }
 
@@ -598,11 +617,14 @@ const getAttendanceRecords = async (req, res) => {
         const records = await attendanceQuery;
 
         // Filter by subject if provided (done after populate)
+        // Check both session_subject (for deleted sessions) and populated session_id.subject
         let filteredRecords = records;
         if (subject) {
-            filteredRecords = records.filter(r =>
-                r.session_id?.subject?.toLowerCase().includes(subject.toLowerCase())
-            );
+            const subjectLower = subject.toLowerCase();
+            filteredRecords = records.filter(r => {
+                const sessionSubject = r.session_subject || r.session_id?.subject || '';
+                return sessionSubject.toLowerCase().includes(subjectLower);
+            });
         }
 
         const formattedRecords = filteredRecords.map(r => ({
@@ -612,7 +634,7 @@ const getAttendanceRecords = async (req, res) => {
             notes: r.notes,
             assistant_name: r.assistant_id?.name || 'Unknown',
             center_name: r.center_id?.name || 'Unknown',
-            subject: r.session_id?.subject || 'Unknown',
+            subject: r.session_subject || r.session_id?.subject || 'Unknown',
             start_time: r.session_id?.start_time,
             latitude: r.latitude,
             longitude: r.longitude
@@ -664,10 +686,30 @@ const recordAttendanceManually = async (req, res) => {
         const center_id = session.center_id;
 
         // Check if attendance already exists
-        const existing = await Attendance.findOne({
-            assistant_id,
-            session_id
-        });
+        // For weekly sessions, check by session_id AND date (to allow multiple occurrences)
+        // For one-time sessions, check by session_id only
+        let existing;
+        if (session.recurrence_type === 'weekly') {
+            const recordedTime = parseAsEgyptTime(time_recorded);
+            const recordDateMoment = moment.tz(recordedTime, 'Africa/Cairo').startOf('day');
+            const recordDate = recordDateMoment.toDate();
+            const nextDayMoment = recordDateMoment.clone().add(1, 'day');
+            const nextDay = nextDayMoment.toDate();
+            
+            existing = await Attendance.findOne({
+                session_id,
+                assistant_id,
+                time_recorded: {
+                    $gte: recordDate,
+                    $lt: nextDay
+                }
+            });
+        } else {
+            existing = await Attendance.findOne({
+                session_id,
+                assistant_id
+            });
+        }
 
         if (existing) {
             return res.status(409).json({
@@ -692,8 +734,14 @@ const recordAttendanceManually = async (req, res) => {
         // For weekly sessions, set the time to today in Egypt timezone
         if (session.recurrence_type === 'weekly') {
             const today = getCurrentEgyptTime();
-            today.setHours(sessionTime.getHours(), sessionTime.getMinutes(), 0, 0);
-            sessionTime = today;
+            const todayMoment = moment.tz(today, 'Africa/Cairo');
+            const sessionMoment = moment.tz(session.start_time, 'Africa/Cairo');
+            sessionTime = todayMoment.clone()
+                .hours(sessionMoment.hours())
+                .minutes(sessionMoment.minutes())
+                .seconds(0)
+                .milliseconds(0)
+                .toDate();
         }
 
         const delayMinutes = getEgyptTimeDifferenceMinutes(recordedTime, sessionTime);
@@ -704,6 +752,7 @@ const recordAttendanceManually = async (req, res) => {
         const newAttendance = new Attendance({
             assistant_id,
             session_id,
+            session_subject: session.subject, // Store session subject for preservation
             center_id,
             latitude: center.latitude,
             longitude: center.longitude,
@@ -808,7 +857,7 @@ const getAttendanceById = async (req, res) => {
             assistant_id: attendance.assistant_id?._id,
             assistant_name: attendance.assistant_id?.name || 'Unknown',
             session_id: attendance.session_id?._id,
-            session_subject: attendance.session_id?.subject || 'Unknown',
+            session_subject: attendance.session_subject || attendance.session_id?.subject || 'Unknown',
             center_id: attendance.center_id?._id,
             center_name: attendance.center_id?.name || 'Unknown',
             time_recorded: attendance.time_recorded,
@@ -1174,14 +1223,12 @@ const getAuditLogs = async (req, res) => {
         if (start_date || end_date) {
             query.timestamp = {};
             if (start_date) {
-                const startDate = parseAsEgyptTime(start_date);
-                startDate.setHours(0, 0, 0, 0);
-                query.timestamp.$gte = startDate;
+                const startDateMoment = moment.tz(start_date, 'Africa/Cairo').startOf('day');
+                query.timestamp.$gte = startDateMoment.toDate();
             }
             if (end_date) {
-                const endDate = parseAsEgyptTime(end_date);
-                endDate.setHours(23, 59, 59, 999);
-                query.timestamp.$lte = endDate;
+                const endDateMoment = moment.tz(end_date, 'Africa/Cairo').endOf('day');
+                query.timestamp.$lte = endDateMoment.toDate();
             }
         }
 
@@ -1224,6 +1271,205 @@ const getAuditLogs = async (req, res) => {
     }
 };
 
+/**
+ * Get error logs
+ * GET /api/admin/error-logs
+ */
+const getErrorLogs = async (req, res) => {
+    try {
+        const { level, resolved, start_date, end_date, page = 1, limit = 50 } = req.query;
+
+        const query = {};
+
+        if (level) query.level = level;
+        if (resolved !== undefined) query.resolved = resolved === 'true';
+
+        if (start_date || end_date) {
+            query.timestamp = {};
+            if (start_date) {
+                const startDateMoment = moment.tz(start_date, 'Africa/Cairo').startOf('day');
+                query.timestamp.$gte = startDateMoment.toDate();
+            }
+            if (end_date) {
+                const endDateMoment = moment.tz(end_date, 'Africa/Cairo').endOf('day');
+                query.timestamp.$lte = endDateMoment.toDate();
+            }
+        }
+
+        const total = await ErrorLog.countDocuments(query);
+
+        const logs = await ErrorLog.find(query)
+            .populate('user_id', 'name email')
+            .populate('resolved_by', 'name email')
+            .sort({ timestamp: -1 })
+            .limit(parseInt(limit))
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .lean();
+
+        const formattedLogs = logs.map(log => ({
+            id: log._id,
+            level: log.level,
+            message: log.message,
+            stack: log.stack,
+            context: log.context,
+            user_id: log.user_id?._id,
+            user_name: log.user_id?.name || null,
+            user_email: log.user_id?.email || null,
+            endpoint: log.endpoint,
+            method: log.method,
+            ip_address: log.ip_address,
+            user_agent: log.user_agent,
+            resolved: log.resolved,
+            resolved_by: log.resolved_by?._id,
+            resolved_by_name: log.resolved_by?.name || null,
+            resolved_at: log.resolved_at,
+            resolution_notes: log.resolution_notes,
+            timestamp: log.timestamp
+        }));
+
+        res.json({
+            success: true,
+            data: formattedLogs,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('Get error logs error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching error logs'
+        });
+    }
+};
+
+/**
+ * Get single error log by ID
+ * GET /api/admin/error-logs/:id
+ */
+const getErrorLogById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const log = await ErrorLog.findById(id)
+            .populate('user_id', 'name email')
+            .populate('resolved_by', 'name email')
+            .lean();
+
+        if (!log) {
+            return res.status(404).json({
+                success: false,
+                message: 'Error log not found'
+            });
+        }
+
+        const formattedLog = {
+            id: log._id,
+            level: log.level,
+            message: log.message,
+            stack: log.stack,
+            context: log.context,
+            user_id: log.user_id?._id,
+            user_name: log.user_id?.name || null,
+            user_email: log.user_id?.email || null,
+            endpoint: log.endpoint,
+            method: log.method,
+            ip_address: log.ip_address,
+            user_agent: log.user_agent,
+            resolved: log.resolved,
+            resolved_by: log.resolved_by?._id,
+            resolved_by_name: log.resolved_by?.name || null,
+            resolved_at: log.resolved_at,
+            resolution_notes: log.resolution_notes,
+            timestamp: log.timestamp
+        };
+
+        res.json({
+            success: true,
+            data: formattedLog
+        });
+    } catch (error) {
+        console.error('Get error log by ID error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching error log'
+        });
+    }
+};
+
+/**
+ * Mark error log as resolved
+ * PUT /api/admin/error-logs/:id/resolve
+ */
+const markErrorResolved = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { resolution_notes } = req.body;
+        const userId = req.user.id;
+
+        const log = await ErrorLog.findById(id);
+
+        if (!log) {
+            return res.status(404).json({
+                success: false,
+                message: 'Error log not found'
+            });
+        }
+
+        await log.markResolved(userId, resolution_notes);
+
+        res.json({
+            success: true,
+            message: 'Error log marked as resolved',
+            data: {
+                id: log._id,
+                resolved: log.resolved,
+                resolved_by: log.resolved_by,
+                resolved_at: log.resolved_at
+            }
+        });
+    } catch (error) {
+        console.error('Mark error resolved error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error marking error log as resolved'
+        });
+    }
+};
+
+/**
+ * Delete error log
+ * DELETE /api/admin/error-logs/:id
+ */
+const deleteErrorLog = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const log = await ErrorLog.findByIdAndDelete(id);
+
+        if (!log) {
+            return res.status(404).json({
+                success: false,
+                message: 'Error log not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Error log deleted successfully'
+        });
+    } catch (error) {
+        console.error('Delete error log error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting error log'
+        });
+    }
+};
+
 module.exports = {
     getDashboardStats,
     getAllAssistants,
@@ -1246,5 +1492,9 @@ module.exports = {
     updateUser,
     deleteUser,
     changeUserPassword,
-    getAuditLogs
+    getAuditLogs,
+    getErrorLogs,
+    getErrorLogById,
+    markErrorResolved,
+    deleteErrorLog
 };

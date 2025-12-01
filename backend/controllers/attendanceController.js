@@ -3,7 +3,9 @@ const Session = require('../models/Session');
 const Center = require('../models/Center');
 const { calculateDistance } = require('../utils/haversine');
 const { logAuditAction } = require('../utils/auditLogger');
+const moment = require('moment-timezone');
 const { getCurrentEgyptTime, getEgyptTimeDifferenceMinutes } = require('../utils/timezone');
+const { logError } = require('../utils/errorLogger');
 
 /**
  * Record attendance with GPS validation
@@ -43,10 +45,31 @@ const recordAttendance = async (req, res) => {
         }
 
         // Check if already attended
-        const existingAttendance = await Attendance.findOne({
-            session_id,
-            assistant_id: assistantId
-        });
+        // For weekly sessions, check by session_id AND date (to allow multiple occurrences)
+        // For one-time sessions, check by session_id only
+        let existingAttendance;
+        if (session.recurrence_type === 'weekly') {
+            // Use Egypt timezone for date calculation
+            const today = getCurrentEgyptTime();
+            const todayMoment = moment.tz(today, 'Africa/Cairo').startOf('day');
+            const tomorrowMoment = todayMoment.clone().add(1, 'day');
+            const todayStart = todayMoment.toDate();
+            const tomorrow = tomorrowMoment.toDate();
+            
+            existingAttendance = await Attendance.findOne({
+                session_id,
+                assistant_id: assistantId,
+                time_recorded: {
+                    $gte: todayStart,
+                    $lt: tomorrow
+                }
+            });
+        } else {
+            existingAttendance = await Attendance.findOne({
+                session_id,
+                assistant_id: assistantId
+            });
+        }
 
         if (existingAttendance) {
             return res.status(409).json({
@@ -79,13 +102,23 @@ const recordAttendance = async (req, res) => {
 
         // Calculate delay using Egypt timezone
         const now = getCurrentEgyptTime();
-        let sessionTime = new Date(session.start_time);
-
-        // For weekly sessions, set the time to today in Egypt timezone
+        
+        // Parse session start time in Egypt timezone
+        let sessionTime;
         if (session.recurrence_type === 'weekly') {
+            // For weekly sessions, set the time to today in Egypt timezone
             const today = getCurrentEgyptTime();
-            today.setHours(sessionTime.getHours(), sessionTime.getMinutes(), 0, 0);
-            sessionTime = today;
+            const sessionMoment = moment.tz(session.start_time, 'Africa/Cairo');
+            const todayMoment = moment.tz(today, 'Africa/Cairo');
+            sessionTime = todayMoment.clone()
+                .hours(sessionMoment.hours())
+                .minutes(sessionMoment.minutes())
+                .seconds(0)
+                .milliseconds(0)
+                .toDate();
+        } else {
+            // For one-time sessions, use the actual session start time (already in Egypt timezone)
+            sessionTime = new Date(session.start_time);
         }
 
         const delayMinutes = getEgyptTimeDifferenceMinutes(now, sessionTime); // Can be negative if early
@@ -127,6 +160,7 @@ const recordAttendance = async (req, res) => {
         const newAttendance = new Attendance({
             assistant_id: assistantId,
             session_id,
+            session_subject: session.subject, // Store session subject for preservation
             center_id: session.center_id._id,
             latitude,
             longitude,
@@ -143,9 +177,10 @@ const recordAttendance = async (req, res) => {
             hour12: true
         });
 
-        // Extract time from start_time
-        const hours = sessionTime.getHours().toString().padStart(2, '0');
-        const minutes = sessionTime.getMinutes().toString().padStart(2, '0');
+        // Extract time from start_time in Egypt timezone
+        const sessionMoment = moment.tz(sessionTime, 'Africa/Cairo');
+        const hours = sessionMoment.hours().toString().padStart(2, '0');
+        const minutes = sessionMoment.minutes().toString().padStart(2, '0');
         const startTime = `${hours}:${minutes}`;
 
         // Log the action
@@ -214,26 +249,59 @@ const getMyAttendance = async (req, res) => {
         // Format records for frontend
         const formattedRecords = records.map(record => {
             const session = record.session_id;
-            const sessionDate = new Date(session.start_time);
+            const center = record.center_id;
 
-            const dateStr = sessionDate.toISOString().split('T')[0];
-            const hours = sessionDate.getHours().toString().padStart(2, '0');
-            const minutes = sessionDate.getMinutes().toString().padStart(2, '0');
+            // Use session_subject if available (preserved from deleted sessions), otherwise use populated session
+            const sessionSubject = record.session_subject || (session ? session.subject : null);
+            
+            // Handle missing session or center (e.g. deleted)
+            if (!session && !sessionSubject) {
+                return {
+                    id: record._id,
+                    time_recorded: record.time_recorded,
+                    delay_minutes: record.delay_minutes,
+                    subject: 'Unknown Session (Deleted)',
+                    date: new Date(record.time_recorded).toISOString().split('T')[0],
+                    start_time: '00:00:00',
+                    end_time: '00:00:00',
+                    center_name: center ? center.name : 'Unknown Center',
+                    is_deleted: record.is_deleted,
+                    deleted_by: record.is_deleted ? (record.deleted_by?.name || 'Unknown Admin') : null,
+                    deleted_at: record.deleted_at,
+                    deletion_reason: record.deletion_reason
+                };
+            }
+
+            // Get session date and time - use session if available, otherwise use time_recorded
+            // All times should be in Egypt timezone
+            let sessionDate;
+            if (session && session.start_time) {
+                sessionDate = moment.tz(session.start_time, 'Africa/Cairo');
+            } else {
+                // Fallback to time_recorded if session is deleted (already in Egypt timezone)
+                sessionDate = moment.tz(record.time_recorded, 'Africa/Cairo');
+            }
+
+            const dateStr = sessionDate.format('YYYY-MM-DD');
+            const hours = sessionDate.hours().toString().padStart(2, '0');
+            const minutes = sessionDate.minutes().toString().padStart(2, '0');
             const startTime = `${hours}:${minutes}:00`;
 
-            // Calculate end time (2 hours later)
-            const endHour = (sessionDate.getHours() + 2).toString().padStart(2, '0');
-            const endTime = `${endHour}:${minutes}:00`;
+            // Calculate end time (2 hours later) in Egypt timezone
+            const endMoment = sessionDate.clone().add(2, 'hours');
+            const endHour = endMoment.hours().toString().padStart(2, '0');
+            const endMinutes = endMoment.minutes().toString().padStart(2, '0');
+            const endTime = `${endHour}:${endMinutes}:00`;
 
             const result = {
                 id: record._id,
                 time_recorded: record.time_recorded,
                 delay_minutes: record.delay_minutes,
-                subject: session.subject,
+                subject: sessionSubject || 'Unknown Session',
                 date: dateStr,
                 start_time: startTime,
                 end_time: endTime,
-                center_name: record.center_id.name
+                center_name: center ? center.name : 'Unknown Center'
             };
 
             // Add deletion information if record is deleted

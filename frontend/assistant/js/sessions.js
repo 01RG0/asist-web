@@ -17,9 +17,19 @@ if (user) {
   userNameEl.textContent = user.name;
 }
 
-// Display current date
-const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-currentDateEl.textContent = new Date().toLocaleDateString('en-US', options);
+// Display current date in Egypt timezone
+function getEgyptDate() {
+  const now = new Date();
+  const options = { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric',
+    timeZone: 'Africa/Cairo'
+  };
+  return now.toLocaleDateString('en-US', options);
+}
+currentDateEl.textContent = getEgyptDate();
 
 // Logout handler
 logoutBtn.addEventListener('click', () => {
@@ -89,7 +99,7 @@ function renderSessionCard(session) {
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
-          ${formatTime(session.start_time)} - ${formatTime(session.end_time)}
+          ${formatTime(session.end_time)}
         </div>
       </div>
       

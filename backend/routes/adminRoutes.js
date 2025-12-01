@@ -22,7 +22,11 @@ const {
     updateUser,
     deleteUser,
     changeUserPassword,
-    getAuditLogs
+    getAuditLogs,
+    getErrorLogs,
+    getErrorLogById,
+    markErrorResolved,
+    deleteErrorLog
 } = require('../controllers/adminController');
 const authenticateToken = require('../middleware/authMiddleware');
 const checkRole = require('../middleware/roleMiddleware');
@@ -65,5 +69,11 @@ router.delete('/attendance/clear', clearAttendance);
 
 // Audit logs
 router.get('/audit-logs', getAuditLogs);
+
+// Error logs
+router.get('/error-logs', getErrorLogs);
+router.get('/error-logs/:id', getErrorLogById);
+router.put('/error-logs/:id/resolve', markErrorResolved);
+router.delete('/error-logs/:id', deleteErrorLog);
 
 module.exports = router;

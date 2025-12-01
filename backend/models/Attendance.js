@@ -15,6 +15,12 @@ const attendanceSchema = new mongoose.Schema({
         ref: 'Session',
         required: [true, 'Session is required']
     },
+    session_subject: {
+        type: String,
+        trim: true,
+        maxlength: [150, 'Session subject cannot exceed 150 characters'],
+        default: null // Optional for backward compatibility
+    },
     center_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Center',

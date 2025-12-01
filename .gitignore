@@ -25,3 +25,9 @@ backend/database/backups/
 .DS_Store
 Thumbs.db
 .vercel
+TIMEZONE_VERIFICATION.md
+QUICK_TEST_CHECKLIST.md
+TEST_SESSION_FIXES.md
+DATA_FLOW_VERIFICATION.md
+COMPREHENSIVE_TEST_GUIDE.md
+cursor_fix_issues_in_asist_web_app.md
