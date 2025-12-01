@@ -110,11 +110,16 @@ function displayAttendance(records) {
         const attendanceTime = new Date(record.time_recorded).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         const delayMinutes = record.delay_minutes || 0;
+        
+        // Delay badge: Always show actual delay time
         const delayBadge = delayMinutes > 0
             ? `<span class="badge badge-warning">+${delayMinutes} min</span>`
-            : '<span class="badge badge-success">On Time</span>';
+            : delayMinutes < 0
+            ? `<span class="badge badge-info">${delayMinutes} min</span>`
+            : '<span class="badge badge-success">0 min</span>';
 
-        const statusBadge = delayMinutes === 0
+        // Status badge: "On Time" if delay <= 10 minutes, otherwise "Late"
+        const statusBadge = delayMinutes <= 10
             ? '<span class="badge badge-success">On Time</span>'
             : '<span class="badge badge-warning">Late</span>';
 
@@ -220,7 +225,7 @@ function exportToExcel() {
             'Center': record.center_name || 'Unknown',
             'Date': attendanceDate,
             'Time': attendanceTime,
-            'Status': record.delay_minutes === 0 ? 'On Time' : 'Late',
+            'Status': (record.delay_minutes || 0) <= 10 ? 'On Time' : 'Late',
             'Delay (minutes)': record.delay_minutes || 0,
             'Notes': record.notes || ''
         };
@@ -274,7 +279,7 @@ function exportIndividualToZip() {
                 'Center': record.center_name || 'Unknown',
                 'Date': attendanceDate,
                 'Time': attendanceTime,
-                'Status': record.delay_minutes === 0 ? 'On Time' : 'Late',
+                'Status': (record.delay_minutes || 0) <= 10 ? 'On Time' : 'Late',
                 'Delay (minutes)': record.delay_minutes || 0,
                 'Notes': record.notes || ''
             };
@@ -756,22 +761,118 @@ async function handleEditAttendanceSubmit(e) {
 }
 
 // Delete attendance confirmation and execution
-async function confirmDeleteAttendance(attendanceId) {
-    if (!confirm('Are you sure you want to delete this attendance record? This action cannot be undone.')) {
+// Delete Attendance Modal
+let currentDeletingAttendanceId = null;
+
+function openDeleteAttendanceModal(attendanceId) {
+    currentDeletingAttendanceId = attendanceId;
+    const modal = document.getElementById('delete-attendance-modal');
+    const reasonInput = document.getElementById('delete-reason');
+    const charCount = document.getElementById('reason-char-count');
+    
+    // Reset form
+    reasonInput.value = '';
+    charCount.textContent = '0';
+    
+    // Show modal
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        modal.classList.add('active');
+    }, 10);
+    
+    // Focus on reason input
+    setTimeout(() => {
+        reasonInput.focus();
+    }, 100);
+}
+
+function closeDeleteAttendanceModal() {
+    const modal = document.getElementById('delete-attendance-modal');
+    const form = document.getElementById('delete-attendance-form');
+    
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        form.reset();
+        currentDeletingAttendanceId = null;
+    }, 300);
+}
+
+// Character count for deletion reason
+document.getElementById('delete-reason').addEventListener('input', (e) => {
+    const charCount = document.getElementById('reason-char-count');
+    charCount.textContent = e.target.value.length;
+    
+    if (e.target.value.length > 200) {
+        charCount.style.color = 'var(--accent-red)';
+    } else {
+        charCount.style.color = 'var(--text-secondary)';
+    }
+});
+
+// Delete attendance form submit
+document.getElementById('delete-attendance-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (!currentDeletingAttendanceId) {
+        showAlert('Error: No attendance record selected', 'error');
         return;
     }
-
+    
+    const reasonInput = document.getElementById('delete-reason');
+    const reason = reasonInput.value.trim();
+    
+    if (!reason || reason.length === 0) {
+        showAlert('Please provide a reason for deletion', 'error');
+        reasonInput.focus();
+        return;
+    }
+    
+    if (reason.length > 200) {
+        showAlert('Deletion reason cannot exceed 200 characters', 'error');
+        reasonInput.focus();
+        return;
+    }
+    
+    const confirmBtn = document.getElementById('confirm-delete-btn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Deleting...';
+    
     try {
-        const response = await window.api.makeRequest('DELETE', `/admin/attendance/${attendanceId}`);
-
+        const response = await window.api.makeRequest('DELETE', `/admin/attendance/${currentDeletingAttendanceId}`, {
+            reason: reason
+        });
+        
         if (response.success) {
-            showAlert(response.message || 'Attendance record deleted successfully', 'success');
-            // Refresh attendance records
+            showAlert('Attendance record deleted successfully', 'success');
+            closeDeleteAttendanceModal();
             loadAttendance(currentFilters, currentPage);
+        } else {
+            showAlert(response.message || 'Failed to delete attendance record', 'error');
         }
     } catch (error) {
-        showAlert(error.message || 'Failed to delete attendance record', 'error');
+        console.error('Delete attendance error:', error);
+        showAlert('An error occurred while deleting the attendance record', 'error');
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete Attendance';
     }
+});
+
+// Close delete modal events
+document.getElementById('close-delete-modal').addEventListener('click', closeDeleteAttendanceModal);
+document.getElementById('cancel-delete-btn').addEventListener('click', closeDeleteAttendanceModal);
+
+// Close modal when clicking outside
+document.getElementById('delete-attendance-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'delete-attendance-modal') {
+        closeDeleteAttendanceModal();
+    }
+});
+
+// confirmDeleteAttendance now opens the modal (defined above)
+function confirmDeleteAttendance(attendanceId) {
+    openDeleteAttendanceModal(attendanceId);
 }
 
 // Initialize

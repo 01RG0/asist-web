@@ -154,9 +154,10 @@ function loadRecentAttendance(attendanceRecords) {
     }
 
     tbody.innerHTML = attendanceRecords.map(record => {
-        const isLate = record.delay_minutes > 0;
+        const delayMinutes = record.delay_minutes || 0;
+        const isLate = delayMinutes > 10;
         const statusClass = isLate ? 'late' : 'on-time';
-        const statusText = isLate ? `Late ${record.delay_minutes} min` : 'On Time';
+        const statusText = isLate ? `Late ${delayMinutes} min` : 'On Time';
 
         // Format time
         const time = new Date(record.time_recorded).toLocaleTimeString('en-US', {

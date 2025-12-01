@@ -793,7 +793,22 @@ const recordAttendanceManually = async (req, res) => {
 const clearAttendance = async (req, res) => {
     try {
         const { id } = req.params;
-        const { reason = '' } = req.body;
+        const { reason } = req.body;
+
+        // Require deletion reason
+        if (!reason || reason.trim().length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Deletion reason is required'
+            });
+        }
+
+        if (reason.trim().length > 200) {
+            return res.status(400).json({
+                success: false,
+                message: 'Deletion reason cannot exceed 200 characters'
+            });
+        }
 
         const attendance = await Attendance.findById(id);
 
@@ -808,7 +823,7 @@ const clearAttendance = async (req, res) => {
         attendance.is_deleted = true;
         attendance.deleted_by = req.user.id;
         attendance.deleted_at = getCurrentEgyptTime();
-        attendance.deletion_reason = reason || 'Deleted by admin';
+        attendance.deletion_reason = reason.trim();
 
         await attendance.save();
 

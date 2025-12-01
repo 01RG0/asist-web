@@ -159,9 +159,21 @@ function displayRecords(records) {
         }
 
         // Normal active record
-        const delayBadge = record.delay_minutes > 0
-            ? `<span class="badge badge-warning">+${record.delay_minutes} min late</span>`
-            : '<span class="badge badge-success">On Time</span>';
+        const delayMinutes = record.delay_minutes || 0;
+        
+        // Status: "On Time" if delay <= 10 minutes
+        const statusText = delayMinutes <= 10 ? 'On Time' : `Late ${delayMinutes} min`;
+        const statusClass = delayMinutes <= 10 ? 'badge-success' : 'badge-warning';
+        
+        // Delay badge: Always show actual delay time
+        const delayBadge = delayMinutes > 0
+            ? `<span class="badge badge-warning">+${delayMinutes} min</span>`
+            : delayMinutes < 0
+            ? `<span class="badge badge-info">${delayMinutes} min</span>`
+            : '<span class="badge badge-success">0 min</span>';
+        
+        // Status badge
+        const statusBadge = `<span class="badge ${statusClass}">${statusText}</span>`;
 
         return `
             <div class="attendance-record-card">
