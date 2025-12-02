@@ -96,98 +96,18 @@ body {
     overflow-y: auto;
 }
 
-/* Category Styles */
-.nav-category {
-    margin-bottom: 1.5rem;
-}
-
-.category-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    user-select: none;
-}
-
-.category-header:hover {
-    background: rgba(102, 126, 234, 0.05);
-}
-
-.category-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-}
-
-.category-icon {
-    width: 16px;
-    height: 16px;
-    color: var(--text-secondary);
-}
-
-.category-chevron {
-    width: 16px;
-    height: 16px;
-    color: var(--text-secondary);
-    transition: transform 0.3s ease;
-}
-
-.category-header.collapsed .category-chevron {
-    transform: rotate(-90deg);
-}
-
-.category-items {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    max-height: 500px;
-    overflow: hidden;
-    transition: max-height 0.3s ease, opacity 0.3s ease;
-    opacity: 1;
-}
-
-.category-header.collapsed+.category-items {
-    max-height: 0;
-    opacity: 0;
-}
-
 .nav-item {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     padding: 0.875rem 1rem;
-    padding-left: 2.5rem;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.5rem;
     border-radius: 12px;
     text-decoration: none;
     color: var(--text-secondary);
     font-weight: 500;
     transition: all 0.3s ease;
     position: relative;
-}
-
-.nav-item::before {
-    content: '';
-    position: absolute;
-    left: 1.25rem;
-    width: 4px;
-    height: 0;
-    background: var(--primary-gradient);
-    border-radius: 2px;
-    transition: height 0.3s ease;
-}
-
-.nav-item:hover::before {
-    height: 60%;
 }
 
 .nav-item:hover {
@@ -200,10 +120,6 @@ body {
     background: var(--primary-gradient);
     color: white;
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-}
-
-.nav-item.active::before {
-    display: none;
 }
 
 .nav-item svg {

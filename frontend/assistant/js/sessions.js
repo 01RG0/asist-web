@@ -99,7 +99,7 @@ function renderSessionCard(session) {
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
-          ${formatTime(session.end_time)}
+          ${formatTime(session.start_time)}
         </div>
       </div>
       
