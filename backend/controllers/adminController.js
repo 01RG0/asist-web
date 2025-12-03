@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Center = require('../models/Center');
 const Session = require('../models/Session');
+const CallSession = require('../models/CallSession');
 const Attendance = require('../models/Attendance');
 const AuditLog = require('../models/AuditLog');
 const ErrorLog = require('../models/ErrorLog');
@@ -9,6 +10,7 @@ const moment = require('moment-timezone');
 const { logAuditAction } = require('../utils/auditLogger');
 const { logError } = require('../utils/errorLogger');
 const { parseAsEgyptTime, getCurrentEgyptTime, getEgyptTimeDifferenceMinutes } = require('../utils/timezone');
+const { createDeletionBackup } = require('../utils/backupHelper');
 
 /**
  * Get dashboard statistics
@@ -74,6 +76,7 @@ const getDashboardStats = async (req, res) => {
             .populate('assistant_id', 'name')
             .populate('center_id', 'name')
             .populate('session_id', 'subject')
+            .populate('call_session_id', 'name')
             .sort({ time_recorded: -1 })
             .limit(10)
             .lean();
@@ -252,17 +255,27 @@ const deleteAssistant = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const deletedAssistant = await User.findOneAndDelete({
+        // Get assistant data before deletion for backup
+        const assistant = await User.findOne({
             _id: id,
             role: 'assistant'
         });
 
-        if (!deletedAssistant) {
+        if (!assistant) {
             return res.status(404).json({
                 success: false,
                 message: 'Assistant not found'
             });
         }
+
+        // Create backup before deletion
+        await createDeletionBackup('assistant', assistant.toObject(), req.user.id);
+
+        // Now delete the assistant
+        await User.findOneAndDelete({
+            _id: id,
+            role: 'assistant'
+        });
 
         // Log the action
         await logAuditAction(req.user.id, 'DELETE_ASSISTANT', {
@@ -271,7 +284,7 @@ const deleteAssistant = async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Assistant deleted successfully'
+            message: 'Assistant deleted successfully (backup created)'
         });
     } catch (error) {
         console.error('Delete assistant error:', error);
@@ -540,14 +553,17 @@ const deleteSession = async (req, res) => {
             });
         }
 
+        // Create backup before deletion
+        await createDeletionBackup('session', sessionToDelete.toObject(), req.user.id);
+
         // Preserve session subject in all related attendance records before deletion
         // This ensures attendance records retain the session name even after deletion
         await Attendance.updateMany(
             { session_id: id },
-            { 
-                $set: { 
-                    session_subject: sessionToDelete.subject 
-                } 
+            {
+                $set: {
+                    session_subject: sessionToDelete.subject
+                }
             }
         );
 
@@ -562,7 +578,7 @@ const deleteSession = async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Session deleted successfully'
+            message: 'Session deleted successfully (backup created)'
         });
     } catch (error) {
         console.error('Delete session error:', error);
@@ -609,6 +625,7 @@ const getAttendanceRecords = async (req, res) => {
             .populate('assistant_id', 'name')
             .populate('center_id', 'name')
             .populate('session_id', 'subject start_time')
+            .populate('call_session_id', 'name date start_time')
             .sort({ time_recorded: -1 })
             .limit(parseInt(limit))
             .skip((parseInt(page) - 1) * parseInt(limit))
@@ -617,28 +634,51 @@ const getAttendanceRecords = async (req, res) => {
         const records = await attendanceQuery;
 
         // Filter by subject if provided (done after populate)
-        // Check both session_subject (for deleted sessions) and populated session_id.subject
+        // Check both session_subject (for deleted sessions), populated session_id.subject, and call_session_id.name
         let filteredRecords = records;
         if (subject) {
             const subjectLower = subject.toLowerCase();
             filteredRecords = records.filter(r => {
-                const sessionSubject = r.session_subject || r.session_id?.subject || '';
+                const sessionSubject = r.session_subject || 
+                    r.session_id?.subject || 
+                    r.call_session_id?.name || 
+                    '';
                 return sessionSubject.toLowerCase().includes(subjectLower);
             });
         }
 
-        const formattedRecords = filteredRecords.map(r => ({
-            id: r._id,
-            time_recorded: r.time_recorded,
-            delay_minutes: r.delay_minutes,
-            notes: r.notes,
-            assistant_name: r.assistant_id?.name || 'Unknown',
-            center_name: r.center_id?.name || 'Unknown',
-            subject: r.session_subject || r.session_id?.subject || 'Unknown',
-            start_time: r.session_id?.start_time,
-            latitude: r.latitude,
-            longitude: r.longitude
-        }));
+        const formattedRecords = filteredRecords.map(r => {
+            // Determine subject from session, call_session, or session_subject
+            const subject = r.session_subject || 
+                r.session_id?.subject || 
+                r.call_session_id?.name || 
+                'Unknown';
+            
+            // Determine start_time from session or call_session
+            let start_time = r.session_id?.start_time;
+            if (!start_time && r.call_session_id) {
+                // For call sessions, combine date and start_time
+                const callDate = moment.tz(r.call_session_id.date, 'Africa/Cairo');
+                const [hours, minutes] = r.call_session_id.start_time.split(':');
+                callDate.hours(parseInt(hours));
+                callDate.minutes(parseInt(minutes));
+                start_time = callDate.toDate();
+            }
+            
+            return {
+                id: r._id,
+                time_recorded: r.time_recorded,
+                delay_minutes: r.delay_minutes,
+                notes: r.notes,
+                assistant_name: r.assistant_id?.name || 'Unknown',
+                center_name: r.center_id?.name || 'Unknown',
+                subject: subject,
+                start_time: start_time,
+                latitude: r.latitude,
+                longitude: r.longitude,
+                is_call_session: !!r.call_session_id
+            };
+        });
 
         res.json({
             success: true,
@@ -660,103 +700,199 @@ const getAttendanceRecords = async (req, res) => {
 };
 
 /**
- * Record attendance manually (admin only)
+ * Record attendance manually (admin only) - Flexible version
  * POST /api/admin/attendance/manual
  */
 const recordAttendanceManually = async (req, res) => {
     try {
-        const { assistant_id, session_id, time_recorded, notes = '' } = req.body;
+        const { assistant_id, session_id, call_session_id, session_subject, time_recorded, delay_minutes = 0, notes = '' } = req.body;
 
-        if (!assistant_id || !session_id || !time_recorded) {
+        if (!assistant_id || !time_recorded) {
             return res.status(400).json({
                 success: false,
-                message: 'Assistant, session, and time recorded are required'
+                message: 'Assistant and time recorded are required'
             });
         }
 
-        // Get session details
-        const session = await Session.findById(session_id).lean();
-        if (!session) {
-            return res.status(404).json({
+        // Cannot have both session_id and call_session_id
+        if (session_id && call_session_id) {
+            return res.status(400).json({
                 success: false,
-                message: 'Session not found'
+                message: 'Cannot specify both session and call session'
             });
         }
 
-        const center_id = session.center_id;
+        // If session_id is provided, validate it exists
+        let session = null;
+        let callSession = null;
+        let center_id = null;
+        let latitude = null;
+        let longitude = null;
+        let finalSessionSubject = session_subject;
+
+        if (session_id) {
+            session = await Session.findById(session_id).lean();
+            if (!session) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Session not found'
+                });
+            }
+            center_id = session.center_id;
+            finalSessionSubject = session_subject || session.subject;
+
+            // Get center coordinates for the attendance record
+            const center = await Center.findById(center_id);
+            if (!center) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Center not found'
+                });
+            }
+            latitude = center.latitude;
+            longitude = center.longitude;
+        } else if (call_session_id) {
+            callSession = await CallSession.findById(call_session_id).lean();
+            if (!callSession) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Call session not found'
+                });
+            }
+            finalSessionSubject = session_subject || callSession.name;
+
+            // For call sessions, get assistant's first assigned center
+            const assistant = await User.findById(assistant_id).select('assignedCenters').lean();
+            if (assistant?.assignedCenters && assistant.assignedCenters.length > 0) {
+                center_id = assistant.assignedCenters[0];
+            }
+            // GPS not required for call sessions
+        } else {
+            // For non-session attendance (WhatsApp, etc.), get assistant's first assigned center
+            const assistant = await User.findById(assistant_id).select('assignedCenters').lean();
+            if (assistant?.assignedCenters && assistant.assignedCenters.length > 0) {
+                center_id = assistant.assignedCenters[0];
+            }
+            // GPS not required for non-session attendance
+        }
+
+        if (!session_subject && !session && !callSession) {
+            return res.status(400).json({
+                success: false,
+                message: 'Session subject is required when no session is selected'
+            });
+        }
+
+        // Parse time_recorded as Egypt timezone (same as normal attendance)
+        const recordedTime = parseAsEgyptTime(time_recorded);
 
         // Check if attendance already exists
-        // For weekly sessions, check by session_id AND date (to allow multiple occurrences)
-        // For one-time sessions, check by session_id only
         let existing;
-        if (session.recurrence_type === 'weekly') {
-            const recordedTime = parseAsEgyptTime(time_recorded);
+        if (session_id) {
+            // For sessions, check by session_id and assistant
+            if (session.recurrence_type === 'weekly') {
+                const recordDateMoment = moment.tz(recordedTime, 'Africa/Cairo').startOf('day');
+                const recordDate = recordDateMoment.toDate();
+                const nextDayMoment = recordDateMoment.clone().add(1, 'day');
+                const nextDay = nextDayMoment.toDate();
+
+                existing = await Attendance.findOne({
+                    session_id,
+                    assistant_id,
+                    time_recorded: {
+                        $gte: recordDate,
+                        $lt: nextDay
+                    }
+                });
+            } else {
+                existing = await Attendance.findOne({
+                    session_id,
+                    assistant_id
+                });
+            }
+        } else if (call_session_id) {
+            // For call sessions, check by call_session_id and assistant
+            existing = await Attendance.findOne({
+                call_session_id,
+                assistant_id
+            });
+        } else {
+            // For non-session attendance, check by time and subject
             const recordDateMoment = moment.tz(recordedTime, 'Africa/Cairo').startOf('day');
             const recordDate = recordDateMoment.toDate();
             const nextDayMoment = recordDateMoment.clone().add(1, 'day');
             const nextDay = nextDayMoment.toDate();
-            
+
             existing = await Attendance.findOne({
-                session_id,
                 assistant_id,
+                session_id: null,
+                call_session_id: null,
+                session_subject: finalSessionSubject,
                 time_recorded: {
                     $gte: recordDate,
                     $lt: nextDay
                 }
-            });
-        } else {
-            existing = await Attendance.findOne({
-                session_id,
-                assistant_id
             });
         }
 
         if (existing) {
             return res.status(409).json({
                 success: false,
-                message: 'Attendance record already exists for this assistant and session'
+                message: 'Attendance record already exists for this assistant'
             });
         }
 
-        // Get center coordinates for the attendance record
-        const center = await Center.findById(center_id);
-        if (!center) {
-            return res.status(404).json({
-                success: false,
-                message: 'Center not found'
-            });
+        // Calculate delay if session or call_session is provided (same logic as normal attendance)
+        let actualDelayMinutes = parseInt(delay_minutes) || 0;
+        if (session_id && session) {
+            // Parse session start time in Egypt timezone (same as normal attendance)
+            let sessionTime;
+            if (session.recurrence_type === 'weekly') {
+                // For weekly sessions, set the time to the recorded date in Egypt timezone
+                const recordedMoment = moment.tz(recordedTime, 'Africa/Cairo');
+                const sessionMoment = moment.tz(session.start_time, 'Africa/Cairo');
+                sessionTime = recordedMoment.clone()
+                    .hours(sessionMoment.hours())
+                    .minutes(sessionMoment.minutes())
+                    .seconds(0)
+                    .milliseconds(0)
+                    .toDate();
+            } else {
+                // For one-time sessions, use the actual session start time (already in Egypt timezone)
+                sessionTime = new Date(session.start_time);
+            }
+
+            // Calculate delay using Egypt timezone (same as normal attendance)
+            const calculatedDelay = getEgyptTimeDifferenceMinutes(recordedTime, sessionTime);
+
+            // Round to nearest whole minute and normalize (same as normal attendance)
+            const roundedDelay = Math.round(calculatedDelay);
+            // If marked early or on time, delay = 0, otherwise delay = full minutes late
+            actualDelayMinutes = roundedDelay <= 0 ? 0 : roundedDelay;
+        } else if (call_session_id && callSession) {
+            // For call sessions, calculate delay based on call session start time
+            const callDate = moment.tz(callSession.date, 'Africa/Cairo');
+            const [hours, minutes] = callSession.start_time.split(':');
+            callDate.hours(parseInt(hours));
+            callDate.minutes(parseInt(minutes));
+            callDate.seconds(0);
+            callDate.milliseconds(0);
+            const sessionTime = callDate.toDate();
+
+            // Calculate delay using Egypt timezone
+            const calculatedDelay = getEgyptTimeDifferenceMinutes(recordedTime, sessionTime);
+            const roundedDelay = Math.round(calculatedDelay);
+            actualDelayMinutes = roundedDelay <= 0 ? 0 : roundedDelay;
         }
-
-        // Calculate delay using Egypt timezone (same logic as regular attendance)
-        const recordedTime = parseAsEgyptTime(time_recorded);
-        let sessionTime = new Date(session.start_time);
-
-        // For weekly sessions, set the time to today in Egypt timezone
-        if (session.recurrence_type === 'weekly') {
-            const today = getCurrentEgyptTime();
-            const todayMoment = moment.tz(today, 'Africa/Cairo');
-            const sessionMoment = moment.tz(session.start_time, 'Africa/Cairo');
-            sessionTime = todayMoment.clone()
-                .hours(sessionMoment.hours())
-                .minutes(sessionMoment.minutes())
-                .seconds(0)
-                .milliseconds(0)
-                .toDate();
-        }
-
-        const delayMinutes = getEgyptTimeDifferenceMinutes(recordedTime, sessionTime);
-
-        // Round to nearest minute and keep positive values
-        const roundedDelay = Math.round(delayMinutes);
-        const actualDelayMinutes = roundedDelay <= 0 ? 0 : roundedDelay;
 
         const newAttendance = new Attendance({
             assistant_id,
-            session_id,
-            session_subject: session.subject, // Store session subject for preservation
-            center_id,
-            latitude: center.latitude,
-            longitude: center.longitude,
+            session_id: session_id || null,
+            call_session_id: call_session_id || null,
+            session_subject: finalSessionSubject,
+            center_id: center_id || null,
+            latitude: latitude,
+            longitude: longitude,
             time_recorded: recordedTime,
             delay_minutes: actualDelayMinutes,
             notes: notes || 'Manually recorded by admin'
@@ -858,6 +994,7 @@ const getAttendanceById = async (req, res) => {
         const attendance = await Attendance.findById(id)
             .populate('assistant_id', 'name email')
             .populate('session_id', 'subject start_time')
+            .populate('call_session_id', 'name date start_time')
             .populate('center_id', 'name')
             .lean();
 
@@ -873,13 +1010,18 @@ const getAttendanceById = async (req, res) => {
             assistant_id: attendance.assistant_id?._id,
             assistant_name: attendance.assistant_id?.name || 'Unknown',
             session_id: attendance.session_id?._id,
-            session_subject: attendance.session_subject || attendance.session_id?.subject || 'Unknown',
+            call_session_id: attendance.call_session_id?._id,
+            session_subject: attendance.session_subject || 
+                attendance.session_id?.subject || 
+                attendance.call_session_id?.name || 
+                'Unknown',
             center_id: attendance.center_id?._id,
             center_name: attendance.center_id?.name || 'Unknown',
             time_recorded: attendance.time_recorded,
             delay_minutes: attendance.delay_minutes,
             latitude: attendance.latitude,
             longitude: attendance.longitude,
+            is_call_session: !!attendance.call_session_id,
             notes: attendance.notes || ''
         };
 
@@ -1465,6 +1607,47 @@ const markErrorResolved = async (req, res) => {
 };
 
 /**
+ * Clear all error logs
+ * DELETE /api/admin/error-logs
+ */
+const clearErrorLogs = async (req, res) => {
+    try {
+        const { resolved_only, older_than_days } = req.body;
+
+        const query = {};
+
+        if (resolved_only) {
+            query.resolved = true;
+        }
+
+        if (older_than_days) {
+            const date = new Date();
+            date.setDate(date.getDate() - parseInt(older_than_days));
+            query.timestamp = { $lt: date };
+        }
+
+        const result = await ErrorLog.deleteMany(query);
+
+        // Log the action
+        await logAuditAction(req.user.id, 'CLEAR_ERROR_LOGS', {
+            count: result.deletedCount,
+            filters: { resolved_only, older_than_days }
+        });
+
+        res.json({
+            success: true,
+            message: `Successfully deleted ${result.deletedCount} error logs`
+        });
+    } catch (error) {
+        console.error('Clear error logs error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error clearing error logs'
+        });
+    }
+};
+
+/**
  * Delete error log
  * DELETE /api/admin/error-logs/:id
  */
@@ -1520,5 +1703,6 @@ module.exports = {
     getErrorLogs,
     getErrorLogById,
     markErrorResolved,
-    deleteErrorLog
+    deleteErrorLog,
+    clearErrorLogs
 };

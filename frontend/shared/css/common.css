@@ -30,6 +30,7 @@
   --bg-primary: #ffffff;
   --bg-secondary: #f7fafc;
   --bg-dark: #1a202c;
+  --bg-card: #ffffff;
   --border-color: rgba(0, 0, 0, 0.08);
 
   /* Spacing */
@@ -155,6 +156,18 @@ p {
 .btn-danger:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(239, 68, 68, 0.3);
+}
+
+.btn-secondary {
+  background: rgba(113, 128, 150, 0.1);
+  color: var(--text-secondary);
+  border: 2px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: rgba(113, 128, 150, 0.2);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 .btn-outline {

@@ -26,7 +26,8 @@ const {
     getErrorLogs,
     getErrorLogById,
     markErrorResolved,
-    deleteErrorLog
+    deleteErrorLog,
+    clearErrorLogs
 } = require('../controllers/adminController');
 const authenticateToken = require('../middleware/authMiddleware');
 const checkRole = require('../middleware/roleMiddleware');
@@ -74,6 +75,7 @@ router.get('/audit-logs', getAuditLogs);
 router.get('/error-logs', getErrorLogs);
 router.get('/error-logs/:id', getErrorLogById);
 router.put('/error-logs/:id/resolve', markErrorResolved);
+router.delete('/error-logs', clearErrorLogs);
 router.delete('/error-logs/:id', deleteErrorLog);
 
 module.exports = router;

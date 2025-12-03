@@ -13,7 +13,12 @@ const attendanceSchema = new mongoose.Schema({
     session_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Session',
-        required: [true, 'Session is required']
+        default: null // Optional when call_session_id is present
+    },
+    call_session_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'CallSession',
+        default: null // Optional when session_id is present
     },
     session_subject: {
         type: String,
@@ -24,17 +29,17 @@ const attendanceSchema = new mongoose.Schema({
     center_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Center',
-        required: [true, 'Center is required']
+        default: null // Optional for call sessions
     },
     latitude: {
         type: Number,
-        required: [true, 'Latitude is required'],
+        default: null, // Optional for call sessions
         min: [-90, 'Latitude must be between -90 and 90'],
         max: [90, 'Latitude must be between -90 and 90']
     },
     longitude: {
         type: Number,
-        required: [true, 'Longitude is required'],
+        default: null, // Optional for call sessions
         min: [-180, 'Longitude must be between -180 and 180'],
         max: [180, 'Longitude must be between -180 and 180']
     },
@@ -89,11 +94,36 @@ const attendanceSchema = new mongoose.Schema({
     toObject: { virtuals: true }
 });
 
-// Unique constraint: one attendance record per assistant per session
-attendanceSchema.index({ assistant_id: 1, session_id: 1 }, { unique: true });
+// Validation: session_id or call_session_id can be null (for WhatsApp/other activities)
+attendanceSchema.pre('validate', function (next) {
+    // Cannot have both session_id and call_session_id
+    if (this.session_id && this.call_session_id) {
+        this.invalidate('session_id', 'Cannot have both session_id and call_session_id');
+        this.invalidate('call_session_id', 'Cannot have both session_id and call_session_id');
+    }
+    // For regular sessions (session_id present), GPS and center are required
+    if (this.session_id && (!this.latitude || !this.longitude || !this.center_id)) {
+        if (!this.latitude) this.invalidate('latitude', 'Latitude is required for regular sessions');
+        if (!this.longitude) this.invalidate('longitude', 'Longitude is required for regular sessions');
+        if (!this.center_id) this.invalidate('center_id', 'Center is required for regular sessions');
+    }
+    // For call sessions and WhatsApp, GPS is optional
+    next();
+});
+
+// Unique constraint: one attendance record per assistant per session/call_session
+attendanceSchema.index({ assistant_id: 1, session_id: 1 }, { 
+    unique: true, 
+    partialFilterExpression: { session_id: { $ne: null } }
+});
+attendanceSchema.index({ assistant_id: 1, call_session_id: 1 }, { 
+    unique: true, 
+    partialFilterExpression: { call_session_id: { $ne: null } }
+});
 
 // Indexes for performance
 attendanceSchema.index({ session_id: 1 });
+attendanceSchema.index({ call_session_id: 1 });
 attendanceSchema.index({ assistant_id: 1 });
 attendanceSchema.index({ center_id: 1 });
 attendanceSchema.index({ time_recorded: -1 });
@@ -121,6 +151,13 @@ attendanceSchema.virtual('assistant', {
 attendanceSchema.virtual('session', {
     ref: 'Session',
     localField: 'session_id',
+    foreignField: '_id',
+    justOne: true
+});
+
+attendanceSchema.virtual('call_session', {
+    ref: 'CallSession',
+    localField: 'call_session_id',
     foreignField: '_id',
     justOne: true
 });

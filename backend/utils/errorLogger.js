@@ -47,7 +47,7 @@ const logError = async (error, context = {}, req = null) => {
             endpoint: req?.path || req?.url || null,
             method: req?.method || null,
             ip_address: req?.ip || req?.connection?.remoteAddress || null,
-            user_agent: req?.get('user-agent') || null
+            user_agent: req?.headers?.['user-agent'] || null
         };
 
         const errorLog = await ErrorLog.logError(errorData);
@@ -86,7 +86,7 @@ const logInfo = async (message, context = {}, req = null) => {
             endpoint: req?.path || req?.url || null,
             method: req?.method || null,
             ip_address: req?.ip || req?.connection?.remoteAddress || null,
-            user_agent: req?.get('user-agent') || null
+            user_agent: req?.headers?.['user-agent'] || null
         };
 
         return await ErrorLog.logError(errorData);
@@ -127,7 +127,7 @@ const logCritical = async (error, context = {}, req = null) => {
             endpoint: req?.path || req?.url || null,
             method: req?.method || null,
             ip_address: req?.ip || req?.connection?.remoteAddress || null,
-            user_agent: req?.get('user-agent') || null
+            user_agent: req?.headers?.['user-agent'] || null
         };
 
         return await ErrorLog.logError(errorData);

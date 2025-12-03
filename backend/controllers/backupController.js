@@ -6,6 +6,8 @@ const AuditLog = require('../models/AuditLog');
 const path = require('path');
 const fs = require('fs').promises;
 const { logAuditAction } = require('../utils/auditLogger');
+const DeletedItem = require('../models/DeletedItem');
+const { restoreFromBackup, permanentlyDeleteBackup } = require('../utils/backupHelper');
 
 /**
  * List all backup files with metadata
@@ -352,10 +354,82 @@ function parseBackupFilename(filename) {
     return info;
 }
 
+/**
+ * List all deleted items
+ * GET /api/admin/backups/deleted
+ */
+const listDeletedItems = async (req, res) => {
+    try {
+        const deletedItems = await DeletedItem.find()
+            .populate('deleted_by', 'name email')
+            .sort({ deleted_at: -1 })
+            .lean();
+
+        res.json({
+            success: true,
+            data: deletedItems
+        });
+    } catch (error) {
+        console.error('List deleted items error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error listing deleted items'
+        });
+    }
+};
+
+/**
+ * Restore a deleted item
+ * POST /api/admin/backups/deleted/:id/restore
+ */
+const restoreDeletedItem = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const restoredItem = await restoreFromBackup(id, req.user.id);
+
+        res.json({
+            success: true,
+            message: 'Item restored successfully',
+            data: restoredItem
+        });
+    } catch (error) {
+        console.error('Restore deleted item error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Error restoring item'
+        });
+    }
+};
+
+/**
+ * Permanently delete a deleted item backup
+ * DELETE /api/admin/backups/deleted/:id
+ */
+const permanentlyDeleteDeletedItem = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await permanentlyDeleteBackup(id, req.user.id);
+
+        res.json({
+            success: true,
+            message: 'Backup permanently deleted'
+        });
+    } catch (error) {
+        console.error('Permanently delete item error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Error deleting backup'
+        });
+    }
+};
+
 module.exports = {
     listBackups,
     createBackup,
     downloadBackup,
     deleteBackup,
-    getBackupInfo
+    getBackupInfo,
+    listDeletedItems,
+    restoreDeletedItem,
+    permanentlyDeleteDeletedItem
 };

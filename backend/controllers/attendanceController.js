@@ -238,6 +238,10 @@ const getMyAttendance = async (req, res) => {
                 select: 'subject start_time'
             })
             .populate({
+                path: 'call_session_id',
+                select: 'name date start_time end_time'
+            })
+            .populate({
                 path: 'center_id',
                 select: 'name'
             })
@@ -254,11 +258,14 @@ const getMyAttendance = async (req, res) => {
             const session = record.session_id;
             const center = record.center_id;
 
-            // Use session_subject if available (preserved from deleted sessions), otherwise use populated session
-            const sessionSubject = record.session_subject || (session ? session.subject : null);
+            // Use session_subject if available (preserved from deleted sessions), otherwise use populated session or call_session
+            const callSession = record.call_session_id;
+            const sessionSubject = record.session_subject || 
+                (session ? session.subject : null) || 
+                (callSession ? callSession.name : null);
             
             // Handle missing session or center (e.g. deleted)
-            if (!session && !sessionSubject) {
+            if (!session && !callSession && !sessionSubject) {
                 return {
                     id: record._id,
                     time_recorded: record.time_recorded,
@@ -275,26 +282,55 @@ const getMyAttendance = async (req, res) => {
                 };
             }
 
-            // Get session date and time - use session if available, otherwise use time_recorded
+            // Get session date and time - use session if available, otherwise use call_session or time_recorded
             // All times should be in Egypt timezone
             let sessionDate;
+            let endTime;
+            
             if (session && session.start_time) {
+                // Regular session
                 sessionDate = moment.tz(session.start_time, 'Africa/Cairo');
+                // Regular sessions are 2 hours long
+                const endMoment = sessionDate.clone().add(2, 'hours');
+                const endHour = endMoment.hours().toString().padStart(2, '0');
+                const endMinutes = endMoment.minutes().toString().padStart(2, '0');
+                endTime = `${endHour}:${endMinutes}:00`;
+            } else if (callSession && callSession.date && callSession.start_time) {
+                // For call sessions, combine date and start_time
+                const callDate = moment.tz(callSession.date, 'Africa/Cairo');
+                const [hours, minutes] = callSession.start_time.split(':');
+                callDate.hours(parseInt(hours));
+                callDate.minutes(parseInt(minutes));
+                sessionDate = callDate;
+                
+                // Use call session end_time if available, otherwise calculate from activity log or use default
+                if (callSession.end_time) {
+                    const endMoment = moment.tz(callSession.end_time, 'Africa/Cairo');
+                    const endHour = endMoment.hours().toString().padStart(2, '0');
+                    const endMinutes = endMoment.minutes().toString().padStart(2, '0');
+                    endTime = `${endHour}:${endMinutes}:00`;
+                } else {
+                    // Fallback: try to get from activity log, or use 2 hours default
+                    // For now, use 2 hours as default (could be improved by querying activity log)
+                    const endMoment = sessionDate.clone().add(2, 'hours');
+                    const endHour = endMoment.hours().toString().padStart(2, '0');
+                    const endMinutes = endMoment.minutes().toString().padStart(2, '0');
+                    endTime = `${endHour}:${endMinutes}:00`;
+                }
             } else {
                 // Fallback to time_recorded if session is deleted (already in Egypt timezone)
                 sessionDate = moment.tz(record.time_recorded, 'Africa/Cairo');
+                // Default 2 hours for deleted sessions
+                const endMoment = sessionDate.clone().add(2, 'hours');
+                const endHour = endMoment.hours().toString().padStart(2, '0');
+                const endMinutes = endMoment.minutes().toString().padStart(2, '0');
+                endTime = `${endHour}:${endMinutes}:00`;
             }
 
             const dateStr = sessionDate.format('YYYY-MM-DD');
             const hours = sessionDate.hours().toString().padStart(2, '0');
             const minutes = sessionDate.minutes().toString().padStart(2, '0');
             const startTime = `${hours}:${minutes}:00`;
-
-            // Calculate end time (2 hours later) in Egypt timezone
-            const endMoment = sessionDate.clone().add(2, 'hours');
-            const endHour = endMoment.hours().toString().padStart(2, '0');
-            const endMinutes = endMoment.minutes().toString().padStart(2, '0');
-            const endTime = `${endHour}:${endMinutes}:00`;
 
             const result = {
                 id: record._id,

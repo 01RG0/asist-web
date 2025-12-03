@@ -7,12 +7,10 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    // Update user info in sidebar
-    document.getElementById('user-name').textContent = user.name;
-    document.getElementById('user-avatar').textContent = user.name.charAt(0).toUpperCase();
-
-    // Initialize sidebar functionality
-    initializeSidebar();
+    // Initialize sidebar functionality after sidebar loads
+    document.addEventListener('sidebarLoaded', () => {
+        initializeSidebar();
+    });
 
     // State
     let currentFilters = {};
@@ -336,15 +334,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function initializeSidebar() {
         const sidebarToggle = document.getElementById('sidebar-toggle');
         const sidebar = document.querySelector('.sidebar');
-        const logoutBtn = document.getElementById('logout-btn');
 
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
-        });
-
-        logoutBtn.addEventListener('click', () => {
-            window.api.logout();
-            window.location.href = 'index.html';
         });
     }
 

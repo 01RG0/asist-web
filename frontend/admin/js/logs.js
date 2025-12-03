@@ -7,13 +7,12 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
-    // Update user info in sidebar and hero
-    document.getElementById('user-name').textContent = user.name;
-    document.getElementById('user-avatar').textContent = user.name.charAt(0).toUpperCase();
-    document.getElementById('user-greeting').textContent = user.name.split(' ')[0];
-
-    // Initialize sidebar functionality
-    initializeSidebar();
+    // Initialize sidebar functionality after sidebar loads
+    document.addEventListener('sidebarLoaded', () => {
+        // Update greeting
+        document.getElementById('user-greeting').textContent = user.name.split(' ')[0];
+        initializeSidebar();
+    });
 
     // Load initial data
     loadUsers();

@@ -18,255 +18,129 @@
 
 <body>
     <!-- Sidebar Navigation -->
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <div class="logo-circle">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-                    <path d="M2 17l10 5 10-5"></path>
-                    <path d="M2 12l10 5 10-5"></path>
-                </svg>
-            </div>
-            <h2>Admin Panel</h2>
-        </div>
+    <div id="sidebar-container"></div>
 
-        <nav class="sidebar-nav">
-            <a href="dashboard.html" class="nav-item active">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="14" width="7" height="7"></rect>
-                    <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
-                <span>Dashboard</span>
-            </a>
-            <a href="centers.html" class="nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                    <circle cx="12" cy="10" r="3"></circle>
-                </svg>
-                <span>Centers</span>
-            </a>
-            <a href="assistants.html" class="nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                </svg>
-                <span>Assistants</span>
-            </a>
-            <a href="sessions.html" class="nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                    <line x1="16" y1="2" x2="16" y2="6"></line>
-                    <line x1="8" y1="2" x2="8" y2="6"></line>
-                    <line x1="3" y1="10" x2="21" y2="10"></line>
-                </svg>
-                <span>Sessions</span>
-            </a>
-            <a href="attendance.html" class="nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                    <polyline points="10 9 9 9 8 9"></polyline>
-                </svg>
-                <span>Attendance</span>
-            </a>
-            <a href="logs.html" class="nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                    <polyline points="10 9 9 9 8 9"></polyline>
-                </svg>
-                <span>Logs</span>
-            </a>
-        </nav>
-
-        <div class="sidebar-footer">
-            <div class="user-info">
-                <div class="user-avatar" id="user-avatar">A</div>
-                <div class="user-details">
-                    <div class="user-name" id="user-name">Admin</div>
-                    <div class="user-role">Administrator</div>
-                </div>
-            </div>
-            <button class="btn-logout" id="logout-btn" title="Logout">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                </svg>
-            </button>
-        </div>
-    </div>
+    <!-- Sidebar Toggle Button -->
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle Sidebar">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+    </button>
 
     <!-- Main Content -->
     <div class="main-content">
         <div class="top-bar">
-            <h1>Dashboard</h1>
+            <h1>Settings</h1>
             <div class="current-date" id="current-date"></div>
         </div>
 
         <div id="alert-container"></div>
 
-        <!-- Statistics Cards -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="9" cy="7" r="4"></circle>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                    </svg>
+        <div class="settings-grid">
+            <!-- System Maintenance -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>System Maintenance</h2>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Attendance Today</div>
-                    <div class="stat-value" id="total-attendance">0</div>
+                <div class="settings-section">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3>System Logs</h3>
+                            <p>View and manage system activity and error logs</p>
+                        </div>
+                        <div class="setting-actions">
+                            <a href="logs.html" class="btn btn-outline">Audit Logs</a>
+                            <a href="error-logs.html" class="btn btn-outline">Error Logs</a>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3>Clear Error Logs</h3>
+                            <p>Remove old error logs to free up space</p>
+                        </div>
+                        <div class="setting-actions">
+                            <button id="clear-errors-btn" class="btn btn-danger">Clear Logs</button>
+                        </div>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3>Database Backups</h3>
+                            <p>Manage system backups and restoration</p>
+                        </div>
+                        <div class="setting-actions">
+                            <a href="backups.html" class="btn btn-primary">Manage Backups</a>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
+            <!-- Application Settings -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>Application Settings</h2>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-label">Late Arrivals</div>
-                    <div class="stat-value" id="late-arrivals">0</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="16" y1="2" x2="16" y2="6"></line>
-                        <line x1="8" y1="2" x2="8" y2="6"></line>
-                        <line x1="3" y1="10" x2="21" y2="10"></line>
-                    </svg>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-label">Active Sessions</div>
-                    <div class="stat-value" id="active-sessions">0</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                        <circle cx="12" cy="10" r="3"></circle>
-                    </svg>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Centers</div>
-                    <div class="stat-value" id="total-centers">0</div>
+                <div class="settings-section">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3>Session Timeout</h3>
+                            <p>Automatically log out inactive users</p>
+                        </div>
+                        <div class="setting-actions">
+                            <select class="form-select" style="width: auto;">
+                                <option value="30">30 Minutes</option>
+                                <option value="60" selected>1 Hour</option>
+                                <option value="120">2 Hours</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Quick Actions -->
-        <div class="section-header">
-            <h2>Quick Actions</h2>
-        </div>
-
-        <div class="quick-actions">
-            <a href="centers.html" class="action-card">
-                <div class="action-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="16"></line>
-                        <line x1="8" y1="12" x2="16" y2="12"></line>
-                    </svg>
-                </div>
-                <h3>Add New Center</h3>
-                <p>Create a new educational center</p>
-            </a>
-
-            <a href="assistants.html" class="action-card">
-                <div class="action-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="8.5" cy="7" r="4"></circle>
-                        <line x1="20" y1="8" x2="20" y2="14"></line>
-                        <line x1="23" y1="11" x2="17" y2="11"></line>
-                    </svg>
-                </div>
-                <h3>Add Assistant</h3>
-                <p>Register a new assistant</p>
-            </a>
-
-            <a href="sessions.html" class="action-card">
-                <div class="action-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="16" y1="2" x2="16" y2="6"></line>
-                        <line x1="8" y1="2" x2="8" y2="6"></line>
-                        <line x1="3" y1="10" x2="21" y2="10"></line>
-                        <line x1="12" y1="14" x2="12" y2="18"></line>
-                        <line x1="10" y1="16" x2="14" y2="16"></line>
-                    </svg>
-                </div>
-                <h3>Create Session</h3>
-                <p>Schedule a new session</p>
-            </a>
-
-            <a href="attendance.html" class="action-card">
-                <div class="action-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="9" y1="15" x2="15" y2="15"></line>
-                    </svg>
-                </div>
-                <h3>View Reports</h3>
-                <p>Check attendance records</p>
-            </a>
-        </div>
-
-        <!-- Recent Attendance -->
-        <div class="section-header">
-            <h2>Recent Attendance</h2>
-            <a href="attendance.html" class="btn-text">View All →</a>
-        </div>
-
-        <div class="card">
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Assistant</th>
-                            <th>Session</th>
-                            <th>Center</th>
-                            <th>Time</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="recent-attendance">
-                        <tr>
-                            <td colspan="5" class="text-center">
-                                <div class="loading-spinner"></div>
-                                Loading...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+    <!-- Clear Logs Modal -->
+    <div id="clear-logs-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Clear Error Logs</h2>
+                <button class="modal-close" id="close-clear-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Select which logs you want to delete:</p>
+                <form id="clear-logs-form">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="resolved_only" value="true">
+                            Delete only resolved errors
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Age</label>
+                        <select name="older_than_days" class="form-select">
+                            <option value="">All time</option>
+                            <option value="7">Older than 7 days</option>
+                            <option value="30">Older than 30 days</option>
+                            <option value="90">Older than 90 days</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-outline" id="cancel-clear-btn">Cancel</button>
+                        <button type="submit" class="btn btn-danger">Clear Logs</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
 
     <!-- Scripts -->
+    <script src="../shared/js/sidebar-template.js"></script>
+    <script src="js/sidebar.js"></script>
     <script src="../shared/js/api.js"></script>
-    <script src="js/dashboard.js"></script>
+    <script src="js/settings.js"></script>
 </body>
 
 </html>

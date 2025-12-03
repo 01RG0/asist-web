@@ -1,0 +1,32 @@
+# Task List - Calls & WhatsApp Module
+
+- [ ] **Backend Implementation**
+    - [ ] Create `WhatsAppSchedule` model
+    - [ ] Create `CallSession` model
+    - [ ] Create `ActivityLog` model
+    - [ ] Create `activityController.js` with CRUD operations
+    - [ ] Create `activityRoutes.js` and register in [server.js](file:///c:/Users/ahmed/Desktop/asist%20web/backend/server.js)
+    - [ ] Implement "Auto-record" logic for WhatsApp (Cron/Trigger)
+
+- [ ] **Frontend - Admin Controls (`controls.html`)**
+    - [ ] Create HTML structure (Tabs for WhatsApp/Calls)
+    - [ ] Implement WhatsApp Schedule form (User, Day, Time, Recurring)
+    - [ ] Implement Call Session form (Name, Date, Time)
+    - [ ] Implement List views for active schedules/sessions
+    - [ ] Connect to backend APIs
+
+- [ ] **Frontend - Admin Records (`records.html`)**
+    - [ ] Create HTML structure (Table view)
+    - [ ] Implement Filters (User, Date, Type)
+    - [ ] Implement Edit/Delete functionality for records
+    - [ ] Connect to backend APIs
+
+- [ ] **Frontend - Assistant Interface**
+    - [ ] Update Assistant Dashboard to show available Call Sessions
+    - [ ] Implement "Start Call" and "End Call" buttons
+    - [ ] Connect to backend APIs
+
+- [ ] **Verification**
+    - [ ] Verify WhatsApp auto-recording
+    - [ ] Verify Call session flow
+    - [ ] Verify Admin editing capabilities

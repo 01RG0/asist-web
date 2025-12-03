@@ -21,6 +21,7 @@ const centerRoutes = require('./routes/centerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const backupRoutes = require('./routes/backupRoutes');
 const logRoutes = require('./routes/logRoutes');
+const activityRoutes = require('./routes/activityRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -55,6 +56,7 @@ app.use('/api/centers', centerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/backups', backupRoutes);
 app.use('/api/log', logRoutes);
+app.use('/api/activities', activityRoutes);
 
 /* ---------- Health check ---------- */
 app.get('/api/health', (req, res) => {
@@ -152,6 +154,13 @@ if (process.env.VERCEL !== '1') {
 
     // Connect to MongoDB and start server
     connectDB().then(() => {
+        // Initialize WhatsApp scheduler cron job
+        const cron = require('node-cron');
+        const { initializeWhatsAppScheduler } = require('./utils/whatsappScheduler');
+        const { initializeCallSessionChecker } = require('./utils/callSessionScheduler');
+        initializeWhatsAppScheduler(cron);
+        initializeCallSessionChecker(cron);
+
         server.listen(PORT, () => {
             console.log('═══════════════════════════════════════════════════════');
             console.log('  🎯 Assistant Attendance System');

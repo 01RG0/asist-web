@@ -6,21 +6,6 @@ if (!window.api.isAuthenticated() || !user || user.role !== 'admin') {
     window.location.href = 'index.html';
 }
 
-// Display user info
-document.getElementById('user-name').textContent = user.name;
-document.getElementById('user-avatar').textContent = user.name.charAt(0).toUpperCase();
-
-// Display personalized greeting
-document.getElementById('user-greeting').textContent = user.name.split(' ')[0];
-
-// Logout functionality
-document.getElementById('logout-btn').addEventListener('click', () => {
-    if (confirm('Are you sure you want to logout?')) {
-        window.api.removeToken();
-        window.location.href = 'index.html';
-    }
-});
-
 // Alert function
 function showAlert(message, type = 'error') {
     const alertContainer = document.getElementById('alert-container');
@@ -127,9 +112,6 @@ function loadRecentAttendance(attendanceRecords) {
 
 // Initialize dashboard with loading states
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize sidebar functionality
-    initializeSidebar();
-
     // Show skeleton loading initially
     showSkeletonLoading();
 
@@ -141,6 +123,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Refresh dashboard every 30 seconds
     setInterval(loadDashboardStats, 30000);
+});
+
+// After sidebar is loaded
+document.addEventListener('sidebarLoaded', () => {
+    // Display personalized greeting
+    const user = window.api.getUser();
+    if (user) {
+        document.getElementById('user-greeting').textContent = user.name.split(' ')[0];
+    }
+
+    // Initialize sidebar functionality
+    initializeSidebar();
 });
 
 // Sidebar functionality
@@ -157,9 +151,8 @@ function initializeSidebar() {
     const minSwipeDistance = 50;
     const maxVerticalDistance = 100;
 
-    // Auto-hide sidebar on page load for larger screens
+    // Keep sidebar visible by default on larger screens; just show toggle
     if (window.innerWidth > 768) {
-        sidebar.classList.add('collapsed');
         sidebarToggle.classList.add('show');
     }
 

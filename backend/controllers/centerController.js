@@ -1,5 +1,6 @@
 const Center = require('../models/Center');
 const { logAuditAction } = require('../utils/auditLogger');
+const { createDeletionBackup } = require('../utils/backupHelper');
 
 /**
  * Get all centers
@@ -192,14 +193,21 @@ const deleteCenter = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const deletedCenter = await Center.findByIdAndDelete(id);
+        // Get center data before deletion for backup
+        const center = await Center.findById(id);
 
-        if (!deletedCenter) {
+        if (!center) {
             return res.status(404).json({
                 success: false,
                 message: 'Center not found'
             });
         }
+
+        // Create backup before deletion
+        await createDeletionBackup('center', center.toObject(), req.user.id);
+
+        // Now delete the center
+        await Center.findByIdAndDelete(id);
 
         // Log the action
         await logAuditAction(req.user.id, 'DELETE_CENTER', {
@@ -208,7 +216,7 @@ const deleteCenter = async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Center deleted successfully'
+            message: 'Center deleted successfully (backup created)'
         });
     } catch (error) {
         console.error('Delete center error:', error);

@@ -6,18 +6,6 @@ if (!window.api.isAuthenticated() || !user || user.role !== 'admin') {
     window.location.href = 'index.html';
 }
 
-// Display user info
-document.getElementById('user-name').textContent = user.name;
-document.getElementById('user-avatar').textContent = user.name.charAt(0).toUpperCase();
-
-// Logout
-document.getElementById('logout-btn').addEventListener('click', () => {
-    if (confirm('Are you sure you want to logout?')) {
-        window.api.removeToken();
-        window.location.href = 'index.html';
-    }
-});
-
 let currentSessionToDelete = null;
 let centers = [];
 let assistants = [];
@@ -331,3 +319,8 @@ if (recurrenceSelect) {
 // Initialize
 loadCentersAndAssistants();
 loadSessions();
+
+// After sidebar is loaded
+document.addEventListener('sidebarLoaded', () => {
+    // Sidebar is now available
+});

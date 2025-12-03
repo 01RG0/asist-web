@@ -11,6 +11,8 @@ const loadingSpinner = document.getElementById('loading-spinner');
 const sessionsContainer = document.getElementById('sessions-container');
 const emptyState = document.getElementById('empty-state');
 const alertContainer = document.getElementById('alert-container');
+const callSessionsContainer = document.getElementById('call-sessions-container');
+const callEmptyState = document.getElementById('call-empty-state');
 
 // Display user name
 if (user) {
@@ -136,5 +138,148 @@ async function loadSessions() {
   }
 }
 
+// Render call session card
+function renderCallSessionCard(session) {
+  const statusClass = session.status === 'active' ? 'badge-success' : 'badge-secondary';
+  const statusText = session.status === 'active' ? 'Active' : session.status === 'completed' ? 'Completed' : 'Pending';
+  const cardClass = session.status === 'active' ? 'session-card attended' : 'session-card';
+
+  // Check if current user is in assistants array
+  const assistants = session.assistants || [];
+  const isJoined = assistants.some(a => String(a.id) === String(user.id));
+  const isFirstAssistant = session.assistant_id && String(session.assistant_id) === String(user.id);
+  const isInSession = isJoined || isFirstAssistant;
+  
+  // Check if end_time is set (admin scheduled end time)
+  const hasScheduledEndTime = session.end_time && new Date(session.end_time) > new Date();
+  const endTimeDisplay = session.end_time ? new Date(session.end_time).toLocaleString() : null;
+  
+  let buttonHtml;
+  if (session.status === 'pending') {
+    buttonHtml = `<button class="btn btn-primary" onclick="startCallSession('${session.id}')">Join Call</button>`;
+  } else if (session.status === 'active' && isInSession) {
+    // If admin set an end_time, disable manual end button
+    if (hasScheduledEndTime) {
+      buttonHtml = `<button class="btn btn-secondary" disabled title="Scheduled to end at ${endTimeDisplay}">End Call (Scheduled)</button>`;
+    } else {
+      buttonHtml = `<button class="btn btn-danger" onclick="stopCallSession('${session.id}')">End Call</button>`;
+    }
+  } else if (session.status === 'active') {
+    buttonHtml = `<button class="btn btn-primary" onclick="startCallSession('${session.id}')">Join Call</button>`;
+  } else {
+    buttonHtml = '<button class="btn btn-secondary" disabled>Completed</button>';
+  }
+
+  return `
+    <div class="${cardClass}">
+      <div class="session-header">
+        <h3 class="session-subject">${session.name}</h3>
+        <span class="session-badge ${statusClass}">${statusText}</span>
+      </div>
+      
+      <div class="session-info">
+        <div class="session-info-item">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          ${new Date(session.date).toLocaleDateString()}
+        </div>
+        
+        <div class="session-info-item">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          ${formatTime(session.start_time)}
+        </div>
+        
+        ${(session.assistants && session.assistants.length > 0) || session.assistant_name ? `
+        <div class="session-info-item">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          ${session.assistants && session.assistants.length > 0 
+            ? session.assistants.map(a => a.name || 'Unknown').join(', ')
+            : session.assistant_name || 'Not started'}
+        </div>
+        ` : ''}
+        
+        ${hasScheduledEndTime ? `
+        <div class="session-info-item" style="color: var(--accent-blue);">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Scheduled to end: ${endTimeDisplay}
+        </div>
+        ` : ''}
+      </div>
+      
+      ${buttonHtml}
+    </div>
+  `;
+}
+
+// Start call session
+window.startCallSession = async function (sessionId) {
+  try {
+    const response = await window.api.makeRequest('POST', `/activities/call-sessions/${sessionId}/start`);
+
+    if (response.success) {
+      showAlert('Call session started successfully', 'success');
+      loadCallSessions();
+    } else {
+      showAlert(response.message || 'Failed to start call session', 'error');
+    }
+  } catch (error) {
+    showAlert(error.message || 'Failed to start call session', 'error');
+  }
+};
+
+// Stop call session
+window.stopCallSession = async function (sessionId) {
+  if (!confirm('Are you sure you want to end this call session?')) {
+    return;
+  }
+
+  try {
+    const response = await window.api.makeRequest('POST', `/activities/call-sessions/${sessionId}/stop`);
+
+    if (response.success) {
+      showAlert('Call session ended successfully', 'success');
+      loadCallSessions();
+    } else {
+      showAlert(response.message || 'Failed to stop call session', 'error');
+    }
+  } catch (error) {
+    showAlert(error.message || 'Failed to stop call session', 'error');
+  }
+};
+
+// Load call sessions
+async function loadCallSessions() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const response = await window.api.makeRequest('GET', `/activities/call-sessions?date=${today}&status=pending,active`);
+
+    if (response.success && response.data.length > 0) {
+      callSessionsContainer.innerHTML = response.data.map(renderCallSessionCard).join('');
+      callSessionsContainer.style.display = 'grid';
+      callEmptyState.style.display = 'none';
+    } else {
+      callSessionsContainer.style.display = 'none';
+      callEmptyState.style.display = 'block';
+    }
+  } catch (error) {
+    console.error('Error loading call sessions:', error);
+    showAlert('Failed to load call sessions', 'error');
+  }
+}
+
 // Load sessions on page load
 loadSessions();
+loadCallSessions();
