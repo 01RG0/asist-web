@@ -86,8 +86,17 @@
             <div class="table-header"
                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h2 style="margin: 0;">Activity Records</h2>
-                <div class="records-count" id="records-count"
-                    style="font-size: 0.875rem; color: var(--text-secondary);">Loading...</div>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="btn btn-primary" id="add-record-btn" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Add Activity Record
+                    </button>
+                    <div class="records-count" id="records-count"
+                        style="font-size: 0.875rem; color: var(--text-secondary);">Loading...</div>
+                </div>
             </div>
             <div class="table-container">
                 <table class="data-table">
@@ -127,6 +136,61 @@
                         <polyline points="9 18 15 12 9 6"></polyline>
                     </svg>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Activity Log Modal -->
+    <div class="modal-overlay" id="add-modal">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>Add Activity Record</h3>
+                <button class="modal-close" id="close-add-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-form">
+                    <div class="form-group">
+                        <label class="form-label">User *</label>
+                        <select id="add-user" class="form-select" required>
+                            <option value="">Select User</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Type *</label>
+                        <select id="add-type" class="form-select" required>
+                            <option value="">Select Type</option>
+                            <option value="whatsapp">WhatsApp</option>
+                            <option value="call">Call</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Start Time *</label>
+                        <input type="datetime-local" id="add-start-time" class="form-input" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">End Time</label>
+                        <input type="datetime-local" id="add-end-time" class="form-input">
+                        <small style="color: var(--text-secondary);">Leave empty if ongoing</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Duration (minutes)</label>
+                        <input type="number" id="add-duration" class="form-input" readonly>
+                        <small style="color: var(--text-secondary);">Auto-calculated from start and end times</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Notes</label>
+                        <textarea id="add-notes" class="form-input" rows="3" placeholder="Optional notes"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" id="cancel-add-btn">Cancel</button>
+                <button type="submit" form="add-form" class="btn btn-primary" id="save-add-btn">Create Record</button>
             </div>
         </div>
     </div>

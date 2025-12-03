@@ -1050,6 +1050,69 @@ const getActivityLogById = async (req, res) => {
 };
 
 /**
+ * Create Activity Log (Manual)
+ * POST /api/activities/logs
+ */
+const createActivityLog = async (req, res) => {
+    try {
+        const { user_id, type, start_time, end_time, notes, call_session_id, whatsapp_schedule_id } = req.body;
+
+        if (!user_id || !type || !start_time) {
+            return res.status(400).json({
+                success: false,
+                message: 'User, type, and start time are required'
+            });
+        }
+
+        if (!['whatsapp', 'call'].includes(type)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Type must be either "whatsapp" or "call"'
+            });
+        }
+
+        const newLog = new ActivityLog({
+            user_id,
+            type,
+            start_time: parseAsEgyptTime(start_time),
+            end_time: end_time ? parseAsEgyptTime(end_time) : null,
+            notes: notes || '',
+            call_session_id: call_session_id || null,
+            whatsapp_schedule_id: whatsapp_schedule_id || null
+        });
+
+        // Calculate duration if end_time is provided
+        if (newLog.end_time) {
+            const diffMs = newLog.end_time - newLog.start_time;
+            newLog.duration_minutes = Math.round(diffMs / (1000 * 60));
+        }
+
+        await newLog.save();
+
+        await logAuditAction(req.user.id, 'CREATE_ACTIVITY_LOG', {
+            log_id: newLog._id.toString(),
+            user_id,
+            type,
+            start_time: newLog.start_time
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Activity log created successfully',
+            data: { id: newLog._id }
+        });
+    } catch (error) {
+        console.error('Create activity log error:', error);
+        await logError(req.user.id, 'CREATE_ACTIVITY_LOG', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error creating activity log',
+            error: error.message
+        });
+    }
+};
+
+/**
  * Update Activity Log
  * PUT /api/activities/logs/:id
  */
@@ -1070,6 +1133,22 @@ const updateActivityLog = async (req, res) => {
                 success: false,
                 message: 'No fields to update'
             });
+        }
+
+        // Calculate duration if start_time or end_time is being updated
+        if (updateData.start_time || updateData.end_time) {
+            const existingLog = await ActivityLog.findById(id);
+            if (existingLog) {
+                const startTime = updateData.start_time || existingLog.start_time;
+                const endTime = updateData.end_time || existingLog.end_time;
+                
+                if (startTime && endTime) {
+                    const diffMs = endTime - startTime;
+                    updateData.duration_minutes = Math.round(diffMs / (1000 * 60));
+                } else {
+                    updateData.duration_minutes = 0;
+                }
+            }
         }
 
         const updatedLog = await ActivityLog.findByIdAndUpdate(
@@ -1211,6 +1290,7 @@ module.exports = {
     startCallSession,
     stopCallSession,
     // Activity Log
+    createActivityLog,
     getActivityLogs,
     getActivityLogById,
     updateActivityLog,

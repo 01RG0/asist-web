@@ -43,6 +43,7 @@ async function loadUsers() {
 function populateUserDropdowns() {
     const filterSelect = document.getElementById('filter-user');
     const editSelect = document.getElementById('edit-user');
+    const addSelect = document.getElementById('add-user');
 
     if (filterSelect) {
         filterSelect.innerHTML = '<option value="">All Users</option>' +
@@ -51,6 +52,11 @@ function populateUserDropdowns() {
 
     if (editSelect) {
         editSelect.innerHTML = '<option value="">Select User</option>' +
+            allUsers.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+    }
+
+    if (addSelect) {
+        addSelect.innerHTML = '<option value="">Select User</option>' +
             allUsers.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
     }
 }
@@ -396,13 +402,110 @@ document.getElementById('confirm-delete-btn').addEventListener('click', async ()
     }
 });
 
+// ============================================
+// Add Modal
+// ============================================
+
+const addModal = document.getElementById('add-modal');
+
+function openAddModal() {
+    addModal.style.display = 'flex';
+    document.getElementById('add-form').reset();
+    
+    // Set current date/time as default
+    const now = new Date();
+    const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    document.getElementById('add-start-time').value = localDateTime;
+    document.getElementById('add-duration').value = 0;
+}
+
+function closeAddModal() {
+    addModal.style.display = 'none';
+    document.getElementById('add-form').reset();
+}
+
+// Calculate duration when start/end times change
+document.getElementById('add-start-time').addEventListener('change', calculateAddDuration);
+document.getElementById('add-end-time').addEventListener('change', calculateAddDuration);
+
+function calculateAddDuration() {
+    const startTime = document.getElementById('add-start-time').value;
+    const endTime = document.getElementById('add-end-time').value;
+
+    if (startTime && endTime) {
+        const start = new Date(startTime);
+        const end = new Date(endTime);
+        const diffMs = end - start;
+        const diffMinutes = Math.round(diffMs / (1000 * 60));
+        document.getElementById('add-duration').value = diffMinutes > 0 ? diffMinutes : 0;
+    } else {
+        document.getElementById('add-duration').value = 0;
+    }
+}
+
+// Save add
+document.getElementById('add-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const userId = document.getElementById('add-user').value;
+    const type = document.getElementById('add-type').value;
+    const startTime = document.getElementById('add-start-time').value;
+    const endTime = document.getElementById('add-end-time').value;
+    const notes = document.getElementById('add-notes').value;
+
+    if (!userId || !type || !startTime) {
+        showAlert('Please fill in all required fields', 'error');
+        return;
+    }
+
+    const saveBtn = document.getElementById('save-add-btn');
+    const originalText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Creating...';
+
+    try {
+        const createData = {
+            user_id: userId,
+            type: type,
+            start_time: startTime,
+            notes: notes || ''
+        };
+
+        if (endTime) {
+            createData.end_time = endTime;
+        }
+
+        const response = await window.api.makeRequest('POST', '/activities/logs', createData);
+
+        if (response.success) {
+            showAlert('Record created successfully', 'success');
+            closeAddModal();
+            loadRecords(currentFilters, currentPage);
+        } else {
+            showAlert(response.message || 'Failed to create record', 'error');
+        }
+    } catch (error) {
+        showAlert(error.message || 'Failed to create record', 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+    }
+});
+
 // Event listeners
+document.getElementById('add-record-btn').addEventListener('click', openAddModal);
+document.getElementById('close-add-modal').addEventListener('click', closeAddModal);
+document.getElementById('cancel-add-btn').addEventListener('click', closeAddModal);
 document.getElementById('close-edit-modal').addEventListener('click', closeEditModal);
 document.getElementById('cancel-edit-btn').addEventListener('click', closeEditModal);
 document.getElementById('close-delete-modal').addEventListener('click', closeDeleteModal);
 document.getElementById('cancel-delete-btn').addEventListener('click', closeDeleteModal);
 
 // Close modals on overlay click
+addModal.addEventListener('click', (e) => {
+    if (e.target === addModal) closeAddModal();
+});
+
 editModal.addEventListener('click', (e) => {
     if (e.target === editModal) closeEditModal();
 });

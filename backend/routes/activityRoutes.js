@@ -15,6 +15,7 @@ const {
     startCallSession,
     stopCallSession,
     // Activity Log
+    createActivityLog,
     getActivityLogs,
     getActivityLogById,
     updateActivityLog,
@@ -42,6 +43,7 @@ router.post('/call-sessions/:id/start', checkRole('assistant'), startCallSession
 router.post('/call-sessions/:id/stop', stopCallSession); // Both admin and assistant can stop
 
 // Activity Log routes (Admin only)
+router.post('/logs', checkRole('admin'), createActivityLog);
 router.get('/logs', checkRole('admin'), getActivityLogs);
 router.get('/logs/:id', checkRole('admin'), getActivityLogById);
 router.put('/logs/:id', checkRole('admin'), updateActivityLog);
