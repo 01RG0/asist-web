@@ -1,0 +1,12 @@
+-- This migration fixes the attendance unique index to allow multiple records for weekly sessions on different dates
+-- The old index: { assistant_id: 1, session_id: 1 } with unique: true
+-- was preventing weekly sessions from having multiple attendance records
+--
+-- The new approach:
+-- - Remove the strict unique index on (assistant_id, session_id)
+-- - Keep unique index only on call_sessions (one record per assistant per call)
+-- - Duplicate prevention for sessions is enforced at the application layer with date-based checks
+--
+-- For MongoDB: Run this in your MongoDB client
+-- db.attendances.dropIndex("assistant_id_1_session_id_1")
+-- Then the new indexes will be created automatically when the app starts (via Mongoose schema)
