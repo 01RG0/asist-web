@@ -898,7 +898,18 @@ const recordAttendanceManually = async (req, res) => {
             notes: notes || 'Manually recorded by admin'
         });
 
-        await newAttendance.save();
+        try {
+            await newAttendance.save();
+        } catch (saveError) {
+            // Handle E11000 duplicate key error with better message
+            if (saveError.code === 11000) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Attendance record already exists for this assistant and session'
+                });
+            }
+            throw saveError;
+        }
 
         // Log the action
         await logAuditAction(req.user.id, 'MANUAL_ATTENDANCE', {

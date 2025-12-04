@@ -172,7 +172,18 @@ const recordAttendance = async (req, res) => {
             notes: notes || ''
         });
 
-        await newAttendance.save();
+        try {
+            await newAttendance.save();
+        } catch (saveError) {
+            // Handle E11000 duplicate key error with better message
+            if (saveError.code === 11000) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Attendance already recorded for this session'
+                });
+            }
+            throw saveError;
+        }
 
         const arrivalTime = now.toLocaleTimeString('en-US', {
             hour: '2-digit',

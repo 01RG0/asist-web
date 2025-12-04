@@ -111,15 +111,21 @@ attendanceSchema.pre('validate', function (next) {
     next();
 });
 
-// Unique constraint: one attendance record per assistant per session/call_session
-attendanceSchema.index({ assistant_id: 1, session_id: 1 }, { 
-    unique: true, 
-    partialFilterExpression: { session_id: { $ne: null } }
-});
+// Unique constraint strategy:
+// - For one-time sessions: enforced at controller level (check before save)
+// - For weekly sessions: allow multiple records, enforced via daily date check in controller
+// - For call_sessions: one record per assistant
+// 
+// Note: We removed the strict unique index to allow weekly session flexibility.
+// Duplicate prevention is handled in the controller layer with proper date-based checks.
 attendanceSchema.index({ assistant_id: 1, call_session_id: 1 }, { 
     unique: true, 
     partialFilterExpression: { call_session_id: { $ne: null } }
 });
+
+// Indexes for quick lookups during duplicate checking
+attendanceSchema.index({ assistant_id: 1, session_id: 1 });
+attendanceSchema.index({ assistant_id: 1, session_id: 1, time_recorded: -1 });
 
 // Indexes for performance
 attendanceSchema.index({ session_id: 1 });
