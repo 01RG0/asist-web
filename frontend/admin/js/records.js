@@ -514,7 +514,27 @@ deleteModal.addEventListener('click', (e) => {
     if (e.target === deleteModal) closeDeleteModal();
 });
 
-// Initialize
+// Initialize with default date range (today to 7 days ahead)
+// This ensures the backend's lazy-create mechanism triggers
+function initializeDefaultFilters() {
+    const today = new Date();
+    const sevenDaysAhead = new Date(today);
+    sevenDaysAhead.setDate(sevenDaysAhead.getDate() + 7);
+
+    // Format as YYYY-MM-DD for input fields
+    const todayStr = today.toISOString().split('T')[0];
+    const sevenDaysStr = sevenDaysAhead.toISOString().split('T')[0];
+
+    document.getElementById('filter-date-from').value = todayStr;
+    document.getElementById('filter-date-to').value = sevenDaysStr;
+
+    // Load records with default date range
+    loadRecords({
+        start_date: todayStr,
+        end_date: sevenDaysStr
+    }, 1);
+}
+
 loadUsers();
-loadRecords({}, 1);
+initializeDefaultFilters();
 

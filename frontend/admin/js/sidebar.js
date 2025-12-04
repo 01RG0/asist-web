@@ -101,7 +101,7 @@ function initSidebar() {
 
         // Add toggle listeners for categories
         sidebarContainer.querySelectorAll('.category-header').forEach(header => {
-            header.addEventListener('click', function () {
+            header.addEventListener('click', function() {
                 const category = this.parentElement;
                 category.classList.toggle('expanded');
             });
@@ -147,26 +147,41 @@ function initializeSidebarCollapse() {
     const minSwipeDistance = 50;
     const maxVerticalDistance = 100;
 
-    // On desktop, start with sidebar visible and toggle button hidden
-    // On mobile, start with sidebar collapsed and toggle button visible
+    // Do not auto-hide sidebar on load — show by default on larger screens
     if (window.innerWidth > 768) {
-        sidebar.classList.remove('collapsed');
-        document.body.classList.remove('sidebar-collapsed');
-        sidebarToggle.classList.remove('show');
-    } else {
-        sidebar.classList.add('collapsed');
-        document.body.classList.add('sidebar-collapsed');
+        // ensure toggle is visible but keep sidebar expanded by default
         sidebarToggle.classList.add('show');
     }
 
     // Toggle sidebar on button click
-    sidebarToggle.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent click from bubbling to document
+    sidebarToggle.addEventListener('click', () => {
         sidebar.classList.toggle('collapsed');
         document.body.classList.toggle('sidebar-collapsed');
         sidebarToggle.classList.toggle('show');
     });
 
+    // Show sidebar on hover when collapsed (desktop only)
+    if (window.innerWidth > 768) {
+        let hoverTimeout;
+
+        sidebar.addEventListener('mouseenter', () => {
+            if (sidebar.classList.contains('collapsed')) {
+                clearTimeout(hoverTimeout);
+                sidebar.classList.remove('collapsed');
+                document.body.classList.remove('sidebar-collapsed');
+            }
+        });
+
+        sidebar.addEventListener('mouseleave', () => {
+            if (!sidebar.classList.contains('collapsed')) {
+                hoverTimeout = setTimeout(() => {
+                    sidebar.classList.add('collapsed');
+                    document.body.classList.add('sidebar-collapsed');
+                    sidebarToggle.classList.add('show');
+                }, 300);
+            }
+        });
+    }
 
     // Touch event handlers for swipe gestures
     document.addEventListener('touchstart', (e) => {
@@ -209,16 +224,26 @@ function initializeSidebarCollapse() {
     // Handle window resize
     window.addEventListener('resize', () => {
         if (window.innerWidth <= 768) {
-            // Mobile: collapse sidebar and show toggle button
+            sidebar.classList.remove('collapsed');
+            document.body.classList.remove('sidebar-collapsed');
+            sidebarToggle.classList.add('show');
+        } else {
             sidebar.classList.add('collapsed');
             document.body.classList.add('sidebar-collapsed');
             sidebarToggle.classList.add('show');
-        } else {
-            // Desktop: expand sidebar and hide toggle button
-            sidebar.classList.remove('collapsed');
-            document.body.classList.remove('sidebar-collapsed');
-            sidebarToggle.classList.remove('show');
         }
     });
 
+    // Close sidebar when clicking outside (desktop only)
+    document.addEventListener('click', (e) => {
+        // Desktop behavior - auto-hide sidebar when clicking outside
+        if (window.innerWidth > 768 &&
+            !sidebar.contains(e.target) &&
+            !sidebarToggle.contains(e.target) &&
+            !sidebar.classList.contains('collapsed')) {
+            sidebar.classList.add('collapsed');
+            document.body.classList.add('sidebar-collapsed');
+            sidebarToggle.classList.add('show');
+        }
+    });
 }
