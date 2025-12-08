@@ -127,7 +127,17 @@
                         <label class="form-label">Upload Students (Excel/CSV) <span class="badge"
                                 style="background: var(--accent-blue); color: white; font-size: 0.7rem;">New</span></label>
                         <input type="file" id="students-file" class="form-input" accept=".xlsx, .xls, .csv">
-                        <small style="color: #666; font-size: 0.875rem;">
+
+                        <div style="margin-top: 10px;">
+                            <label class="form-label" style="font-size: 0.9em;">Import Type:</label>
+                            <select id="import-type" class="form-select">
+                                <option value="">General</option>
+                                <option value="absent">Absent Students</option>
+                                <option value="present">Attendance (Present)</option>
+                            </select>
+                        </div>
+
+                        <small style="color: #666; font-size: 0.875rem; display: block; margin-top: 5px;">
                             Columns required: <strong>Name</strong>, <strong>Student Phone</strong>, <strong>Parent
                                 Phone</strong>
                         </small>

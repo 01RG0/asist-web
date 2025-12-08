@@ -186,8 +186,10 @@ function handleImport(file) {
             const sheetName = workbook.SheetNames[0];
             const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
 
+            const importType = document.getElementById('import-type-monitor').value;
+
             // Normalize new data
-            const newStudents = jsonData.map(row => {
+            let newStudents = jsonData.map(row => {
                 const normRow = {};
                 Object.keys(row).forEach(key => {
                     const cleanKey = key.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
@@ -223,8 +225,29 @@ function handleImport(file) {
                     else if (['attendancestatus', 'attendance', 'status', 'present', 'absent'].includes(cleanKey)) normRow.attendanceStatus = val;
                     else if (['homeworkstatus', 'homework', 'hw', 'hwstatus', 'assignment', 'assignmentstatus'].includes(cleanKey)) normRow.homeworkStatus = val;
                 });
+
+                // Apply override status if selected
+                if (importType === 'absent') normRow.attendanceStatus = 'Absent';
+                else if (importType === 'present') normRow.attendanceStatus = 'Present';
+
                 return normRow.name ? normRow : null;
             }).filter(r => r !== null);
+
+            // Deduplicate within the file itself
+            const uniqueStudents = [];
+            const seen = new Set();
+            newStudents.forEach(s => {
+                const key = s.studentPhone ? s.studentPhone.replace(/[^0-9]/g, '') : s.name.toLowerCase().trim();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueStudents.push(s);
+                }
+            });
+
+            if (newStudents.length > uniqueStudents.length) {
+                console.log(`Filtered ${newStudents.length - uniqueStudents.length} duplicates from imported file.`);
+            }
+            newStudents = uniqueStudents;
 
             // MERGE LOGIC
             let addedCount = 0;
@@ -246,20 +269,22 @@ function handleImport(file) {
 
                 if (existingIndex > -1) {
                     // Update existing
-                    // Ensure we DON'T overwrite status or comments, only contact info
                     const existing = finalStudents[existingIndex];
-                    if (existing.name !== newS.name || existing.studentPhone !== newS.studentPhone || existing.parentPhone !== newS.parentPhone) {
-                        finalStudents[existingIndex] = {
-                            ...existing,
-                            name: newS.name, // Accept name correction
-                            studentPhone: newS.studentPhone || existing.studentPhone,
-                            parentPhone: newS.parentPhone || existing.parentPhone,
-                            examMark: newS.examMark || existing.examMark,
-                            center: newS.center || existing.center,
-                            studentId: newS.studentId || existing.studentId
-                        };
-                        updatedCount++;
-                    }
+
+                    // Check if we have new substantial info to update
+                    // We update contact info, identifiers, AND attendance/homework if provided
+                    finalStudents[existingIndex] = {
+                        ...existing,
+                        name: newS.name,
+                        studentPhone: newS.studentPhone || existing.studentPhone,
+                        parentPhone: newS.parentPhone || existing.parentPhone,
+                        examMark: newS.examMark || existing.examMark,
+                        center: newS.center || existing.center,
+                        studentId: newS.studentId || existing.studentId,
+                        attendanceStatus: newS.attendanceStatus || existing.attendanceStatus, // Update if new has value
+                        homeworkStatus: newS.homeworkStatus || existing.homeworkStatus // Update if new has value
+                    };
+                    updatedCount++; // Note: This increments even if nothing effectively changed, simplified for now
                 } else {
                     // Add new
                     finalStudents.push({
@@ -269,6 +294,8 @@ function handleImport(file) {
                         examMark: newS.examMark || '',
                         center: newS.center || '',
                         studentId: newS.studentId || '',
+                        attendanceStatus: newS.attendanceStatus || '',
+                        homeworkStatus: newS.homeworkStatus || '',
                         filterStatus: '',
                         comments: []
                     });
@@ -502,6 +529,7 @@ function exportStudents() {
                 'Center': s.center || '',
                 'Exam Mark': s.examMark !== undefined && s.examMark !== null && s.examMark !== '' ? s.examMark : '',
                 'Attendance Status': s.attendanceStatus || '',
+                'Homework Status': s.homeworkStatus || '',
                 'Status': s.filterStatus || 'Pending',
                 'Last Called By': s.lastCalledBy || '',
                 'Assigned To': s.assignedTo || '',

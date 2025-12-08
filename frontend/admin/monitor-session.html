@@ -138,6 +138,13 @@
                 </div>
             </div>
             <div style="display: flex; gap: 0.5rem;">
+                <!-- Import Type Selector -->
+                <select id="import-type-monitor" class="form-select" style="width: auto; min-width: 120px;">
+                    <option value="">Import: General</option>
+                    <option value="absent">Import: Absent</option>
+                    <option value="present">Import: Attendance</option>
+                </select>
+
                 <!-- Hidden file input for import -->
                 <input type="file" id="import-file" accept=".xlsx, .xls, .csv" style="display: none;">
                 <button class="btn btn-outline" id="import-btn">

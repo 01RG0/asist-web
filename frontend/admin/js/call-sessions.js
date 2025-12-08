@@ -364,6 +364,7 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
 
         // 2. Handle File Upload OR Merged Data
         const fileInput = document.getElementById('students-file');
+        const importType = document.getElementById('import-type').value;
         let studentsToUpload = null;
 
         if (fileInput.files.length > 0) {
@@ -379,6 +380,35 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
             // Use merged data if available
             studentsToUpload = window.mergedStudentsData;
             saveBtn.textContent = 'Uploading merged students...';
+        }
+
+        // Apply Import Type & Deduplication
+        if (studentsToUpload && studentsToUpload.length > 0) {
+            // 1. Apply Status
+            if (importType === 'absent') {
+                studentsToUpload.forEach(s => s.attendanceStatus = 'Absent');
+            } else if (importType === 'present') {
+                studentsToUpload.forEach(s => s.attendanceStatus = 'Present');
+            }
+
+            // 2. Prevent Duplication (within this batch)
+            const uniqueStudents = [];
+            const seen = new Set();
+
+            studentsToUpload.forEach(s => {
+                // Use phone as primary key, name as fallback
+                const key = s.studentPhone ? s.studentPhone.replace(/[^0-9]/g, '') : s.name.toLowerCase().trim();
+
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueStudents.push(s);
+                }
+            });
+
+            if (studentsToUpload.length > uniqueStudents.length) {
+                console.log(`Removed ${studentsToUpload.length - uniqueStudents.length} duplicates from upload.`);
+            }
+            studentsToUpload = uniqueStudents;
         }
 
         // Upload students if we have any
