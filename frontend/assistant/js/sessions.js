@@ -166,7 +166,14 @@ function renderCallSessionCard(session) {
     if (hasScheduledEndTime) {
       buttonHtml = `<button class="btn btn-secondary" disabled title="Scheduled to end at ${endTimeDisplay}">End Call (Scheduled)</button>`;
     } else {
-      buttonHtml = `<button class="btn btn-danger" onclick="stopCallSession('${session.id}')">End Call</button>`;
+      // User is currently active - valid to just go back in or end it.
+      // We provide a distinct "Continue" button to re-enter the session page.
+      buttonHtml = `
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <a href="call-session.html?session=${session.id}" class="btn btn-primary" style="text-decoration: none; flex: 1; text-align: center;">Continue</a>
+          <button class="btn btn-danger" onclick="stopCallSession('${session.id}')" style="flex: 1;">End Call</button>
+        </div>
+      `;
     }
   } else if (session.status === 'active') {
     // Session is active but user is not in it - they can join
