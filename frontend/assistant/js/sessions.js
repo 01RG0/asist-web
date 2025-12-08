@@ -155,16 +155,21 @@ function renderCallSessionCard(session) {
   const endTimeDisplay = session.end_time ? new Date(session.end_time).toLocaleString() : null;
 
   let buttonHtml;
-  if (session.status === 'pending') {
+
+  // Check if user has already completed their participation
+  if (session.hasCompletedParticipation) {
+    buttonHtml = '<button class="btn btn-secondary" disabled>✓ Participation Completed</button>';
+  } else if (session.status === 'pending') {
     buttonHtml = `<button class="btn btn-primary" onclick="startCallSession('${session.id}')">Join Call</button>`;
-  } else if (session.status === 'active' && isInSession) {
-    // If admin set an end_time, disable manual end button
+  } else if (session.status === 'active' && session.isCurrentlyActive) {
+    // User is actively in the session
     if (hasScheduledEndTime) {
       buttonHtml = `<button class="btn btn-secondary" disabled title="Scheduled to end at ${endTimeDisplay}">End Call (Scheduled)</button>`;
     } else {
       buttonHtml = `<button class="btn btn-danger" onclick="stopCallSession('${session.id}')">End Call</button>`;
     }
   } else if (session.status === 'active') {
+    // Session is active but user is not in it - they can join
     buttonHtml = `<button class="btn btn-primary" onclick="startCallSession('${session.id}')">Join Call</button>`;
   } else {
     buttonHtml = '<button class="btn btn-secondary" disabled>Completed</button>';

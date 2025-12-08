@@ -30,6 +30,23 @@ function showAlert(message, type = 'success') {
     }, 5000);
 }
 
+// Get color for homework status
+function getHomeworkColor(status) {
+    if (!status) return 'var(--text-primary)';
+
+    const s = status.toLowerCase();
+
+    if (s.includes('done') || s.includes('completed') || s === 'yes') {
+        return '#10b981'; // Green
+    } else if (s.includes('not completed') || s.includes('incomplete') || s === 'no') {
+        return '#ef4444'; // Red
+    } else if (s.includes('not evaluated') || s.includes('pending')) {
+        return '#f59e0b'; // Orange
+    } else {
+        return 'var(--text-primary)';
+    }
+}
+
 // Initialize
 async function init() {
     await loadSessionDetails();
@@ -110,6 +127,9 @@ function renderStudentsTable(students) {
                     ${s.attendanceStatus ? `<span style="color: ${s.attendanceStatus.toLowerCase().includes('absent') ? '#ef4444' : '#10b981'}; font-weight: 600;">${s.attendanceStatus}</span>` : '-'}
                 </td>
                 <td>
+                    ${s.homeworkStatus ? `<span style="color: ${getHomeworkColor(s.homeworkStatus)}; font-weight: 600;">${s.homeworkStatus}</span>` : '-'}
+                </td>
+                <td>
                     <span class="badge" style="background: ${s.filterStatus ? '#dcfce7' : '#f3f4f6'}; color: ${s.filterStatus ? '#166534' : '#374151'};">
                         ${s.filterStatus || 'Pending'}
                     </span>
@@ -177,21 +197,31 @@ function handleImport(file) {
                     if (['name', 'studentname', 'student'].includes(cleanKey)) normRow.name = val;
                     else if (['studentphone', 'phone', 'mobile', 'studentmobile'].includes(cleanKey)) {
                         normRow.studentPhone = String(val).replace(/[^0-9+]/g, '');
-                        // Add leading zero if missing and doesn't start with +
-                        if (normRow.studentPhone && !normRow.studentPhone.startsWith('0') && !normRow.studentPhone.startsWith('+')) {
-                            normRow.studentPhone = '0' + normRow.studentPhone;
+                        // Add +20 prefix if missing and doesn't start with +
+                        if (normRow.studentPhone && !normRow.studentPhone.startsWith('+')) {
+                            // Remove leading 0 if present
+                            if (normRow.studentPhone.startsWith('0')) {
+                                normRow.studentPhone = normRow.studentPhone.substring(1);
+                            }
+                            normRow.studentPhone = '+20' + normRow.studentPhone;
                         }
                     }
                     else if (['parentphone', 'fatherphone', 'motherphone', 'parentmobile'].includes(cleanKey)) {
                         normRow.parentPhone = String(val).replace(/[^0-9+]/g, '');
-                        // Add leading zero if missing and doesn't start with +
-                        if (normRow.parentPhone && !normRow.parentPhone.startsWith('0') && !normRow.parentPhone.startsWith('+')) {
-                            normRow.parentPhone = '0' + normRow.parentPhone;
+                        // Add +20 prefix if missing and doesn't start with +
+                        if (normRow.parentPhone && !normRow.parentPhone.startsWith('+')) {
+                            // Remove leading 0 if present
+                            if (normRow.parentPhone.startsWith('0')) {
+                                normRow.parentPhone = normRow.parentPhone.substring(1);
+                            }
+                            normRow.parentPhone = '+20' + normRow.parentPhone;
                         }
                     }
                     else if (['exammark', 'mark', 'score', 'degree', 'grade', 'exam'].includes(cleanKey)) normRow.examMark = val;
                     else if (['center', 'location', 'branch', 'group'].includes(cleanKey)) normRow.center = val;
                     else if (['studentid', 'id', 'code', 'studentcode'].includes(cleanKey)) normRow.studentId = val;
+                    else if (['attendancestatus', 'attendance', 'status', 'present', 'absent'].includes(cleanKey)) normRow.attendanceStatus = val;
+                    else if (['homeworkstatus', 'homework', 'hw', 'hwstatus', 'assignment', 'assignmentstatus'].includes(cleanKey)) normRow.homeworkStatus = val;
                 });
                 return normRow.name ? normRow : null;
             }).filter(r => r !== null);

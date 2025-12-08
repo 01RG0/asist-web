@@ -285,6 +285,7 @@ async function loadRecordData(recordId) {
             document.getElementById('edit-start-time').value = startTime.toISOString().slice(0, 16);
             document.getElementById('edit-end-time').value = endTime ? endTime.toISOString().slice(0, 16) : '';
             document.getElementById('edit-duration').value = record.duration_minutes || 0;
+            document.getElementById('edit-completed-count').value = record.completed_count || '';
             document.getElementById('edit-notes').value = record.notes || '';
         }
     } catch (error) {
@@ -343,6 +344,12 @@ document.getElementById('edit-form').addEventListener('submit', async (e) => {
 
         if (endTime) {
             updateData.end_time = endTime;
+        }
+
+        // Add completed count if provided
+        const completedCount = document.getElementById('edit-completed-count').value;
+        if (completedCount !== '') {
+            updateData.completed_count = parseInt(completedCount);
         }
 
         const response = await window.api.makeRequest('PUT', `/activities/logs/${currentEditingRecordId}`, updateData);

@@ -54,12 +54,109 @@ let students = []; // Holds current student (length 1) normally
 let currentStudentIndex = 0;
 let historyMode = false;
 let historyOffset = 0; // 0 = last processed, 1 = one before that, etc.
+let isOnline = navigator.onLine;
+const STORAGE_KEY = `call_session_${sessionId}`;
+
+// Connection Status Management
+function updateConnectionStatus() {
+    const statusEl = document.getElementById('connection-status');
+    if (navigator.onLine) {
+        statusEl.classList.remove('offline');
+        statusEl.classList.add('online');
+        statusEl.title = 'Connected';
+        isOnline = true;
+    } else {
+        statusEl.classList.remove('online');
+        statusEl.classList.add('offline');
+        statusEl.title = 'No Connection';
+        isOnline = false;
+        showToast('Connection lost. Please reconnect to continue.', 'error');
+    }
+}
+
+// Listen for online/offline events
+window.addEventListener('online', () => {
+    updateConnectionStatus();
+    showToast('Connection restored!', 'success');
+});
+
+window.addEventListener('offline', () => {
+    updateConnectionStatus();
+});
+
+// State Persistence Functions
+function saveSessionState() {
+    try {
+        const state = {
+            sessionId,
+            sessionData,
+            currentStudent: students[0] || null,
+            historyMode,
+            historyOffset,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (error) {
+        console.error('Error saving session state:', error);
+    }
+}
+
+function restoreSessionState() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            const state = JSON.parse(saved);
+            // Check if state is recent (within 24 hours)
+            const age = Date.now() - state.timestamp;
+            if (age < 24 * 60 * 60 * 1000) {
+                sessionData = state.sessionData;
+                if (state.currentStudent) {
+                    students = [state.currentStudent];
+                    displayStudent(state.currentStudent);
+                }
+                historyMode = state.historyMode;
+                historyOffset = state.historyOffset;
+                return true;
+            }
+        }
+    } catch (error) {
+        console.error('Error restoring session state:', error);
+    }
+    return false;
+}
+
+function clearSessionState() {
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+        console.error('Error clearing session state:', error);
+    }
+}
 
 // Initialize page
 async function init() {
+    updateConnectionStatus();
+
+    // Try to restore state first
+    const restored = restoreSessionState();
+
+    // Always load session data to get latest info
     await loadSessionData();
-    // Start by loading the next available student
-    await loadNextStudent();
+
+    if (restored && students.length > 0 && students[0]) {
+        // Check if the restored student already has a filter status (completed)
+        const restoredStudent = students[0];
+        if (restoredStudent.filterStatus && restoredStudent.filterStatus !== '') {
+            // Student is already completed, load a new one instead
+            console.log('Restored student is already completed, loading new student...');
+            await loadNextStudent();
+        }
+        // else: Student is not completed, keep showing it
+    } else {
+        // No state restored or invalid state, load next student
+        await loadNextStudent();
+    }
+
     setupEventListeners();
 }
 
@@ -88,6 +185,10 @@ async function loadPreviousStudent() {
                 name: student.name,
                 studentPhone: student.student_phone,
                 parentPhone: student.parent_phone,
+                studentId: student.studentId || student.student_id || '',
+                center: student.center || '',
+                examMark: student.examMark || student.exam_mark || '',
+                attendanceStatus: student.attendanceStatus || student.attendance_status || '',
                 filterStatus: student.filter_status,
                 comments: student.comments || [],
                 howMany: student.how_many,
@@ -98,6 +199,7 @@ async function loadPreviousStudent() {
             currentStudentIndex = 0;
 
             displayStudent(mappedStudent);
+            saveSessionState();
             showToast(`Viewing history (${historyOffset + 1} back)`, 'info');
         } else {
             showToast('No previous students found', 'info');
@@ -184,6 +286,7 @@ async function loadNextStudent() {
                 currentStudentIndex = 0;
 
                 displayStudent(student);
+                saveSessionState(); // Save state after loading student
 
                 if (response.message) showToast(response.message); // "New student assigned" or "Continued with..."
 
@@ -309,6 +412,30 @@ function displayStudent(student) {
         attendanceStatusGroup.style.display = 'none';
     }
 
+    // Homework Status
+    const homeworkStatusEl = document.getElementById('homework-status');
+    const homeworkStatusGroup = document.getElementById('homework-status-group');
+
+    if (student.homeworkStatus) {
+        homeworkStatusEl.value = student.homeworkStatus;
+        homeworkStatusGroup.style.display = 'block';
+        hasOptionalInfo = true;
+
+        // Color code based on homework status
+        const hwLower = student.homeworkStatus.toLowerCase();
+        if (hwLower.includes('done') || hwLower.includes('completed') || hwLower === 'yes') {
+            homeworkStatusEl.style.color = '#10b981'; // Green for done
+        } else if (hwLower.includes('not completed') || hwLower.includes('incomplete') || hwLower === 'no') {
+            homeworkStatusEl.style.color = '#ef4444'; // Red for not completed
+        } else if (hwLower.includes('not evaluated') || hwLower.includes('pending')) {
+            homeworkStatusEl.style.color = '#f59e0b'; // Orange for not evaluated
+        } else {
+            homeworkStatusEl.style.color = 'var(--text-primary)';
+        }
+    } else {
+        homeworkStatusGroup.style.display = 'none';
+    }
+
     // Show optional section only if at least one field has data
     optionalSection.style.display = hasOptionalInfo ? 'block' : 'none';
 
@@ -356,6 +483,17 @@ function updateNextButtonState() {
 
 // Setup event listeners
 function setupEventListeners() {
+    // End session button
+    const endSessionBtn = document.getElementById('end-session-btn');
+    if (endSessionBtn) {
+        endSessionBtn.addEventListener('click', endSession);
+    }
+
+    // Previous student button
+    if (prevStudentBtn) {
+        prevStudentBtn.addEventListener('click', loadPreviousStudent);
+    }
+
     // Phone actions
     callStudentBtn.addEventListener('click', () => {
         const phone = studentPhoneEl.value.replace(/\s/g, '');
@@ -401,6 +539,10 @@ function setupEventListeners() {
     if (nextStudentBtn) {
         nextStudentBtn.addEventListener('click', () => {
             const student = students[currentStudentIndex];
+            if (!student) {
+                loadNextStudent();
+                return;
+            }
             const hasStatus = student.filterStatus && student.filterStatus !== '';
             const hasComments = student.comments && student.comments.length > 0;
 
@@ -416,10 +558,17 @@ function setupEventListeners() {
     // Filters
     filterButtons.forEach(btn => {
         btn.addEventListener('click', async () => {
+            if (!isOnline) {
+                showToast('Cannot update status while offline', 'error');
+                return;
+            }
+
             const filter = btn.dataset.filter;
             if (!filter) return;
 
             const student = students[currentStudentIndex];
+            if (!student) return;
+
             const oldStatus = student.filterStatus;
 
             // Toggle
@@ -444,45 +593,70 @@ function setupEventListeners() {
                     // Revert on failure
                     student.filterStatus = oldStatus;
                     updateNextButtonState(); // Revert validation
-                    loadStudent(); // Reset UI
+                    displayStudent(student); // Reset UI
                     showToast('Failed to save status', 'error');
+                } else {
+                    saveSessionState(); // Save state after successful update
                 }
             } catch (error) {
                 console.error('Save status error:', error);
                 student.filterStatus = oldStatus;
                 updateNextButtonState(); // Revert validation
-                loadStudent();
+                displayStudent(student);
                 showToast('Failed to save status', 'error');
             }
         });
     });
 
     // Checkboxes (How Many / Total Test)
-    howManyCheckEl.addEventListener('change', async (e) => {
-        const student = students[currentStudentIndex];
-        const val = e.target.checked;
-        student.howMany = val;
+    if (howManyCheckEl) {
+        howManyCheckEl.addEventListener('change', async (e) => {
+            if (!isOnline) {
+                showToast('Cannot update while offline', 'error');
+                e.target.checked = !e.target.checked;
+                return;
+            }
+            const student = students[currentStudentIndex];
+            if (!student) return;
+            const val = e.target.checked;
+            student.howMany = val;
 
-        try {
-            await window.api.makeRequest('PUT', `/activities/call-sessions/students/${student.id}`, { howMany: val });
-        } catch (error) {
-            console.error('Save checkbox error:', error);
-            showToast('Failed to save', 'error');
-            e.target.checked = !val; // Revert
-        }
-    });
+            try {
+                await window.api.makeRequest('PUT', `/activities/call-sessions/students/${student.id}`, { howMany: val });
+            } catch (error) {
+                console.error('Save checkbox error:', error);
+                showToast('Failed to save', 'error');
+                e.target.checked = !val; // Revert
+            }
+        });
+    }
 
-    totalTestCheckEl.addEventListener('change', async (e) => {
-        const student = students[currentStudentIndex];
-        const val = e.target.checked;
-        student.totalTest = val;
+    if (totalTestCheckEl) {
+        totalTestCheckEl.addEventListener('change', async (e) => {
+            if (!isOnline) {
+                showToast('Cannot update while offline', 'error');
+                e.target.checked = !e.target.checked;
+                return;
+            }
+            const student = students[currentStudentIndex];
+            if (!student) return;
+            const val = e.target.checked;
+            student.totalTest = val;
 
-        try {
-            await window.api.makeRequest('PUT', `/activities/call-sessions/students/${student.id}`, { totalTest: val });
-        } catch (error) {
-            console.error('Save checkbox error:', error);
-            showToast('Failed to save', 'error');
-            e.target.checked = !val; // Revert
+            try {
+                await window.api.makeRequest('PUT', `/activities/call-sessions/students/${student.id}`, { totalTest: val });
+            } catch (error) {
+                console.error('Save checkbox error:', error);
+                showToast('Failed to save', 'error');
+                e.target.checked = !val; // Revert
+            }
+        });
+    }
+
+    // Auto-save before leaving page
+    window.addEventListener('beforeunload', () => {
+        if (students.length > 0 && students[0]) {
+            saveSessionState();
         }
     });
 }
@@ -564,6 +738,7 @@ async function saveComment() {
             // Update validation
             updateNextButtonState();
 
+            saveSessionState(); // Save state after adding comment
             closeModal();
             showToast('Comment added successfully!');
         } else {
@@ -640,6 +815,45 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// End Session Function
+async function endSession() {
+    if (!isOnline) {
+        showToast('Cannot end session while offline. Please reconnect.', 'error');
+        return;
+    }
+
+    const confirmed = confirm('Are you sure you want to end this call session?\n\nYour progress will be saved.');
+    if (!confirmed) return;
+
+    const endBtn = document.getElementById('end-session-btn');
+    const originalText = endBtn.textContent;
+    endBtn.disabled = true;
+    endBtn.textContent = 'Ending...';
+
+    try {
+        const response = await window.api.makeRequest('POST', `/activities/call-sessions/${sessionId}/stop`);
+
+        if (response.success) {
+            clearSessionState();
+            showToast('✅ Session ended successfully!', 'success');
+
+            // Redirect after 2 seconds
+            setTimeout(() => {
+                window.location.href = 'sessions.html';
+            }, 2000);
+        } else {
+            showToast(response.message || 'Failed to end session', 'error');
+            endBtn.disabled = false;
+            endBtn.textContent = originalText;
+        }
+    } catch (error) {
+        console.error('Error ending session:', error);
+        showToast('Error ending session: ' + error.message, 'error');
+        endBtn.disabled = false;
+        endBtn.textContent = originalText;
+    }
+}
 
 // Initialize on page load
 init();

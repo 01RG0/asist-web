@@ -272,6 +272,10 @@ function parseImportFile(file) {
                         else if (['attendancestatus', 'attendance', 'status', 'present', 'absent'].includes(cleanKey)) {
                             newRow.attendanceStatus = val;
                         }
+                        // Homework Status
+                        else if (['homeworkstatus', 'homework', 'hw', 'hwstatus', 'assignment', 'assignmentstatus'].includes(cleanKey)) {
+                            newRow.homeworkStatus = val;
+                        }
                     });
 
                     // Validation: Must have at least a name
@@ -286,16 +290,24 @@ function parseImportFile(file) {
                     // Cleaning up phones (remove dashes, spaces if needed, or keep as is)
                     if (newRow.studentPhone) {
                         newRow.studentPhone = newRow.studentPhone.replace(/[^0-9+]/g, '');
-                        // Add leading zero if missing and doesn't start with +
-                        if (newRow.studentPhone && !newRow.studentPhone.startsWith('0') && !newRow.studentPhone.startsWith('+')) {
-                            newRow.studentPhone = '0' + newRow.studentPhone;
+                        // Add +20 prefix if missing and doesn't start with +
+                        if (newRow.studentPhone && !newRow.studentPhone.startsWith('+')) {
+                            // Remove leading 0 if present
+                            if (newRow.studentPhone.startsWith('0')) {
+                                newRow.studentPhone = newRow.studentPhone.substring(1);
+                            }
+                            newRow.studentPhone = '+20' + newRow.studentPhone;
                         }
                     }
                     if (newRow.parentPhone) {
                         newRow.parentPhone = newRow.parentPhone.replace(/[^0-9+]/g, '');
-                        // Add leading zero if missing and doesn't start with +
-                        if (newRow.parentPhone && !newRow.parentPhone.startsWith('0') && !newRow.parentPhone.startsWith('+')) {
-                            newRow.parentPhone = '0' + newRow.parentPhone;
+                        // Add +20 prefix if missing and doesn't start with +
+                        if (newRow.parentPhone && !newRow.parentPhone.startsWith('+')) {
+                            // Remove leading 0 if present
+                            if (newRow.parentPhone.startsWith('0')) {
+                                newRow.parentPhone = newRow.parentPhone.substring(1);
+                            }
+                            newRow.parentPhone = '+20' + newRow.parentPhone;
                         }
                     }
 

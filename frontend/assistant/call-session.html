@@ -23,7 +23,9 @@
         <div class="header-content">
             <h1>📞 Call Session</h1>
             <div class="user-info">
+                <span id="connection-status" class="connection-status online" title="Connected">●</span>
                 <span id="session-name">Loading...</span>
+                <button id="end-session-btn" class="btn btn-danger" style="margin-right: 0.5rem;">End Session</button>
                 <a href="sessions.html" class="btn logout-btn">← Back</a>
             </div>
         </div>
@@ -139,6 +141,13 @@
                         <div class="form-group" id="attendance-status-group" style="display: none;">
                             <label for="attendance-status">Attendance Status</label>
                             <input type="text" id="attendance-status" class="form-input" readonly
+                                style="font-weight: 600;">
+                        </div>
+
+                        <!-- Homework Status -->
+                        <div class="form-group" id="homework-status-group" style="display: none;">
+                            <label for="homework-status">Homework Status</label>
+                            <input type="text" id="homework-status" class="form-input" readonly
                                 style="font-weight: 600;">
                         </div>
                     </div>

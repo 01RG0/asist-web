@@ -47,22 +47,32 @@ function parseFile(file) {
                         // Phone
                         else if (['studentphone', 'phone', 'mobile', 'studentmobile'].includes(cleanKey)) {
                             normRow.studentPhone = String(val).replace(/[^0-9+]/g, '');
-                            // Add leading zero if missing and doesn't start with +
-                            if (normRow.studentPhone && !normRow.studentPhone.startsWith('0') && !normRow.studentPhone.startsWith('+')) {
-                                normRow.studentPhone = '0' + normRow.studentPhone;
+                            // Add +20 prefix if missing and doesn't start with +
+                            if (normRow.studentPhone && !normRow.studentPhone.startsWith('+')) {
+                                // Remove leading 0 if present
+                                if (normRow.studentPhone.startsWith('0')) {
+                                    normRow.studentPhone = normRow.studentPhone.substring(1);
+                                }
+                                normRow.studentPhone = '+20' + normRow.studentPhone;
                             }
                         }
                         else if (['parentphone', 'fatherphone', 'motherphone', 'parentmobile'].includes(cleanKey)) {
                             normRow.parentPhone = String(val).replace(/[^0-9+]/g, '');
-                            // Add leading zero if missing and doesn't start with +
-                            if (normRow.parentPhone && !normRow.parentPhone.startsWith('0') && !normRow.parentPhone.startsWith('+')) {
-                                normRow.parentPhone = '0' + normRow.parentPhone;
+                            // Add +20 prefix if missing and doesn't start with +
+                            if (normRow.parentPhone && !normRow.parentPhone.startsWith('+')) {
+                                // Remove leading 0 if present
+                                if (normRow.parentPhone.startsWith('0')) {
+                                    normRow.parentPhone = normRow.parentPhone.substring(1);
+                                }
+                                normRow.parentPhone = '+20' + normRow.parentPhone;
                             }
                         }
                         // Optional fields
                         else if (['exammark', 'mark', 'score', 'degree', 'grade', 'exam'].includes(cleanKey)) normRow.examMark = val;
                         else if (['center', 'location', 'branch', 'group'].includes(cleanKey)) normRow.center = val;
                         else if (['studentid', 'id', 'code', 'studentcode'].includes(cleanKey)) normRow.studentId = val;
+                        // Homework
+                        else if (['homeworkstatus', 'homework', 'hw', 'hwstatus', 'assignment', 'assignmentstatus'].includes(cleanKey)) normRow.homeworkStatus = val;
                     });
                     return normRow.name ? normRow : null;
                 }).filter(r => r !== null);
@@ -184,7 +194,7 @@ function renderPreview() {
     const tbody = document.getElementById('preview-tbody');
 
     // Get all possible columns
-    const columns = ['name', 'studentId', 'studentPhone', 'parentPhone', 'center', 'examMark', 'attendanceStatus'];
+    const columns = ['name', 'studentId', 'studentPhone', 'parentPhone', 'center', 'examMark', 'attendanceStatus', 'homeworkStatus'];
     const columnLabels = {
         name: 'Name',
         studentId: 'Student ID',
@@ -192,7 +202,8 @@ function renderPreview() {
         parentPhone: 'Parent Phone',
         center: 'Center',
         examMark: 'Exam Mark',
-        attendanceStatus: 'Attendance Status'
+        attendanceStatus: 'Attendance Status',
+        homeworkStatus: 'Homework Status'
     };
 
     // Build header
@@ -210,6 +221,15 @@ function renderPreview() {
         const value = student[col] || '-';
         if (col === 'attendanceStatus') {
             const color = value === 'Absent' ? '#ef4444' : '#10b981';
+            return `<td><span style="color: ${color}; font-weight: 600;">${value}</span></td>`;
+        }
+        if (col === 'homeworkStatus') {
+            let color = 'var(--text-primary)';
+            const s = String(value).toLowerCase();
+            if (s.includes('done') || s.includes('completed') || s === 'yes') color = '#10b981';
+            else if (s.includes('not') || s.includes('incomplete') || s === 'no') color = '#ef4444';
+            else if (s.includes('eval') || s.includes('pending')) color = '#f59e0b';
+
             return `<td><span style="color: ${color}; font-weight: 600;">${value}</span></td>`;
         }
         return `<td>${value}</td>`;
@@ -234,7 +254,8 @@ document.getElementById('download-btn').addEventListener('click', () => {
             'Parent Phone': s.parentPhone || '',
             'Center': s.center || '',
             'Exam Mark': s.examMark !== undefined && s.examMark !== null && s.examMark !== '' ? s.examMark : '',
-            'Attendance Status': s.attendanceStatus
+            'Attendance Status': s.attendanceStatus,
+            'Homework Status': s.homeworkStatus || ''
         }));
 
         // Create workbook

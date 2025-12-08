@@ -274,6 +274,7 @@ const createCallSession = async (req, res) => {
 const getCallSessions = async (req, res) => {
     try {
         const { date, status, assistant_id } = req.query;
+        const currentUserId = req.user?.id;
 
         const query = {};
         if (date) {
@@ -297,10 +298,30 @@ const getCallSessions = async (req, res) => {
             .sort({ date: -1, start_time: 1 })
             .lean();
 
+        // Get all activity logs for current user for these sessions
+        const sessionIds = sessions.map(s => s._id);
+        let userActivityLogs = [];
+        if (currentUserId && sessionIds.length > 0) {
+            userActivityLogs = await ActivityLog.find({
+                user_id: currentUserId,
+                call_session_id: { $in: sessionIds },
+                type: 'call'
+            }).lean();
+        }
+
         const formattedSessions = sessions.map(session => {
             const dateMoment = moment.tz(session.date, 'Africa/Cairo');
             const assistants = session.assistants || [];
             const assistantNames = assistants.map(a => a.name || 'Unknown').filter(Boolean);
+
+            // Check if current user has an activity log for this session
+            const userLog = userActivityLogs.find(
+                log => log.call_session_id.toString() === session._id.toString()
+            );
+            // Has completed participation if log exists AND has end_time
+            const hasCompletedParticipation = userLog && userLog.end_time != null;
+            // Is currently active in session if log exists but no end_time
+            const isCurrentlyActive = userLog && userLog.end_time == null;
 
             return {
                 id: session._id,
@@ -313,6 +334,8 @@ const getCallSessions = async (req, res) => {
                 assistants: assistants.map(a => ({ id: a._id, name: a.name || 'Unknown' })),
                 assistant_names: assistantNames,
                 end_time: session.end_time,
+                hasCompletedParticipation,
+                isCurrentlyActive,
                 created_at: session.createdAt,
                 updated_at: session.updatedAt
             };
@@ -330,6 +353,7 @@ const getCallSessions = async (req, res) => {
         });
     }
 };
+
 
 /**
  * Get Call Session by ID
@@ -645,45 +669,8 @@ const startCallSession = async (req, res) => {
 
         await activityLog.save();
 
-        // Create attendance record for call session
-        try {
-            // Get assistant's assigned centers
-            const assistant = await User.findById(assistantId).select('assignedCenters').lean();
-            const firstCenter = assistant?.assignedCenters && assistant.assignedCenters.length > 0
-                ? assistant.assignedCenters[0]
-                : null;
-
-            // Calculate delay minutes (when assistant joined vs session start time)
-            const now = getCurrentEgyptTime();
-            const delayMinutes = getEgyptTimeDifferenceMinutes(sessionDateTime.toDate(), now);
-            const actualDelayMinutes = delayMinutes <= 0 ? 0 : delayMinutes;
-
-            // Check if attendance already exists for this call session
-            const existingAttendance = await Attendance.findOne({
-                assistant_id: assistantId,
-                call_session_id: session._id
-            });
-
-            if (!existingAttendance) {
-                const attendance = new Attendance({
-                    assistant_id: assistantId,
-                    call_session_id: session._id,
-                    session_subject: session.name, // Use call session name as subject
-                    center_id: firstCenter, // Use first assigned center or null
-                    latitude: null, // No GPS required for call sessions
-                    longitude: null,
-                    time_recorded: now,
-                    delay_minutes: actualDelayMinutes,
-                    notes: `Call session: ${session.name}`
-                });
-
-                await attendance.save();
-            }
-        } catch (attendanceError) {
-            // Log error but don't fail the call session start
-            console.error('Error creating attendance record for call session:', attendanceError);
-            await logError(assistantId, 'CREATE_CALL_SESSION_ATTENDANCE', attendanceError);
-        }
+        // Note: Call sessions do NOT create attendance records
+        // They only create activity logs which appear in Activity Records page
 
         await logAuditAction(assistantId, 'START_CALL_SESSION', {
             session_id: id,
@@ -727,7 +714,9 @@ const stopCallSession = async (req, res) => {
             });
         }
 
-        if (session.status !== 'active') {
+        // Only check if session is active when admin is trying to end the entire session
+        // Assistants can end their participation anytime
+        if (isAdmin && session.status !== 'active') {
             return res.status(400).json({
                 success: false,
                 message: `Call session is not active (current status: ${session.status})`
@@ -854,11 +843,16 @@ const assignNextStudent = async (req, res) => {
 
             return res.json({
                 success: true,
-                formattedData: {
+                data: {
                     id: currentAssignment._id,
                     name: currentAssignment.name,
                     studentPhone: currentAssignment.student_phone,
                     parentPhone: currentAssignment.parent_phone,
+                    studentId: currentAssignment.student_id || '',
+                    center: currentAssignment.center || '',
+                    examMark: currentAssignment.exam_mark !== undefined && currentAssignment.exam_mark !== null ? currentAssignment.exam_mark : '',
+                    attendanceStatus: currentAssignment.attendance_status || '',
+                    homeworkStatus: currentAssignment.homework_status || '',
                     filterStatus: currentAssignment.filter_status,
                     comments: currentAssignment.comments,
                     howMany: currentAssignment.how_many,
@@ -944,6 +938,7 @@ const assignNextStudent = async (req, res) => {
             center: nextStudent.center || '',
             examMark: nextStudent.exam_mark !== undefined && nextStudent.exam_mark !== null ? nextStudent.exam_mark : '',
             attendanceStatus: nextStudent.attendance_status || '',
+            homeworkStatus: nextStudent.homework_status || '',
             filterStatus: nextStudent.filter_status,
             comments: nextStudent.comments,
             howMany: nextStudent.how_many,
@@ -1005,7 +1000,8 @@ const importCallSessionStudents = async (req, res) => {
             student_id: student.studentId || '',
             center: student.center || '',
             exam_mark: student.examMark !== undefined && student.examMark !== null ? student.examMark : null,
-            attendance_status: student.attendanceStatus || ''
+            attendance_status: student.attendanceStatus || '',
+            homework_status: student.homeworkStatus || ''
         }));
 
         await CallSessionStudent.insertMany(studentRecords);
@@ -1081,6 +1077,7 @@ const getCallSessionStudents = async (req, res) => {
             center: s.center || '',
             examMark: s.exam_mark !== undefined && s.exam_mark !== null ? s.exam_mark : '',
             attendanceStatus: s.attendance_status || '',
+            homeworkStatus: s.homework_status || '',
             filterStatus: s.filter_status,
             comments: s.comments,
             howMany: s.how_many,
@@ -1570,7 +1567,7 @@ const createActivityLog = async (req, res) => {
 const updateActivityLog = async (req, res) => {
     try {
         const { id } = req.params;
-        const { user_id, type, start_time, end_time, notes } = req.body;
+        const { user_id, type, start_time, end_time, notes, completed_count } = req.body;
 
         const updateData = {};
         if (user_id) updateData.user_id = user_id;
@@ -1578,6 +1575,7 @@ const updateActivityLog = async (req, res) => {
         if (start_time) updateData.start_time = parseAsEgyptTime(start_time);
         if (end_time) updateData.end_time = parseAsEgyptTime(end_time);
         if (notes !== undefined) updateData.notes = notes;
+        if (completed_count !== undefined) updateData.completed_count = completed_count;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
