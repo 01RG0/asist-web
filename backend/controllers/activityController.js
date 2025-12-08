@@ -991,29 +991,58 @@ const importCallSessionStudents = async (req, res) => {
             });
         }
 
-        // Create student records
-        const studentRecords = students.map(student => ({
-            call_session_id: id,
-            name: student.name,
-            student_phone: student.studentPhone || '',
-            parent_phone: student.parentPhone || '',
-            student_id: student.studentId || '',
-            center: student.center || '',
-            exam_mark: student.examMark !== undefined && student.examMark !== null ? student.examMark : null,
-            attendance_status: student.attendanceStatus || '',
-            homework_status: student.homeworkStatus || ''
-        }));
+        // Update or Insert student records (Upsert) to prevent duplicates and allow updates
+        // We check by Phone (if valid) OR Name
+        const bulkOps = students.map(student => {
+            let filter = { call_session_id: id };
 
-        await CallSessionStudent.insertMany(studentRecords);
+            // Priority 1: Match by Phone
+            if (student.studentPhone && student.studentPhone.length > 7) {
+                filter.student_phone = student.studentPhone;
+            } else {
+                // Priority 2: Match by Name (case insensitive regex to be safe? No, let's strictly match name for bulkOp performance)
+                // Note: Ideally we should use _id if provided, but import usually implies generic data
+                filter.name = student.name;
+            }
+
+            // If the frontend provided an ID (existing student), use that as the most reliable filter!
+            if (student.id || student._id) {
+                filter = { _id: student.id || student._id };
+            }
+
+            return {
+                updateOne: {
+                    filter: filter,
+                    update: {
+                        $set: {
+                            call_session_id: id, // Ensure session ID set
+                            name: student.name,
+                            student_phone: student.studentPhone || '',
+                            parent_phone: student.parentPhone || '',
+                            student_id: student.studentId || '',
+                            center: student.center || '',
+                            exam_mark: student.examMark !== undefined && student.examMark !== null ? student.examMark : null,
+                            attendance_status: student.attendanceStatus || '',
+                            homework_status: student.homeworkStatus || ''
+                        }
+                    },
+                    upsert: true
+                }
+            };
+        });
+
+        if (bulkOps.length > 0) {
+            await CallSessionStudent.bulkWrite(bulkOps);
+        }
 
         await logAuditAction(req.user.id, 'IMPORT_CALL_SESSION_STUDENTS', {
             session_id: id,
             count: students.length
         });
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
-            message: `${students.length} students imported successfully`
+            message: `${students.length} students processed (merged/imported) successfully`
         });
     } catch (error) {
         console.error('Import students error:', error);
