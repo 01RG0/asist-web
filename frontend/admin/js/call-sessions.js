@@ -41,13 +41,19 @@ function populateAssistantDropdown() {
 // Load all call sessions
 async function loadSessions() {
     try {
+        // Check authentication first
+        if (!window.api.isAuthenticated()) {
+            window.location.href = 'index.html';
+            return;
+        }
+
         const response = await window.api.makeRequest('GET', '/activities/call-sessions');
         if (response.success) {
             displaySessions(response.data);
         }
     } catch (error) {
         console.error('Error loading sessions:', error);
-        showAlert('Failed to load call sessions', 'error');
+        showAlert('Failed to load call sessions: ' + (error.response?.data?.message || error.message), 'error');
     }
 }
 
@@ -65,10 +71,10 @@ function displaySessions(sessions) {
     }
 
     tbody.innerHTML = sessions.map(session => {
-        // Safe access to assistants array
-        const assistantsList = session.assistant_names && session.assistant_names.length > 0
-            ? session.assistant_names.join(', ')
-            : (session.assistant_name || '<span style="color: #888;">Any</span>');
+        // Use the formatted assistant display from backend
+        const assistantsList = session.assistant_display
+            ? session.assistant_display.replace(/\n/g, '<br>')
+            : '<span style="color: #888;">Any</span>';
 
         // Status badge
         let statusBadge = '';

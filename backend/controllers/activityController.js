@@ -294,12 +294,63 @@ const getCallSessions = async (req, res) => {
 
         const sessions = await CallSession.find(query)
             .populate('assistant_id', 'name email')
-            .populate('assistants', 'name email')
             .sort({ date: -1, start_time: 1 })
             .lean();
+        const assistantIds = new Set();
+        const sessionIds = sessions.map(s => s._id);
+
+        // Also get assistants who worked on sessions (from student call logs)
+        const workingAssistantsMap = {};
+
+        if (sessionIds.length > 0) {
+            // Get all students for all sessions to find working assistants
+            const allStudents = await CallSessionStudent.find({
+                call_session_id: { $in: sessionIds }
+            }, 'call_session_id last_called_by').lean();
+
+            // Group working assistants by session
+            allStudents.forEach(student => {
+                if (student.last_called_by) {
+                    const sessionIdStr = student.call_session_id.toString();
+                    if (!workingAssistantsMap[sessionIdStr]) {
+                        workingAssistantsMap[sessionIdStr] = new Set();
+                    }
+                    workingAssistantsMap[sessionIdStr].add(student.last_called_by.toString());
+                }
+            });
+
+            // Collect all unique assistant IDs (both joined and working)
+            sessions.forEach(session => {
+                // Add joined assistants
+                if (session.assistants && session.assistants.length > 0) {
+                    session.assistants.forEach(assistantId => {
+                        assistantIds.add(assistantId.toString());
+                    });
+                }
+
+                // Add working assistants
+                const sessionIdStr = session._id.toString();
+                if (workingAssistantsMap[sessionIdStr]) {
+                    workingAssistantsMap[sessionIdStr].forEach(assistantId => {
+                        assistantIds.add(assistantId);
+                    });
+                }
+            });
+        }
+
+        // Fetch all assistant names in one query
+        const assistantMap = {};
+        if (assistantIds.size > 0) {
+            const assistants = await User.find({
+                _id: { $in: Array.from(assistantIds) }
+            }, 'name').lean();
+
+            assistants.forEach(assistant => {
+                assistantMap[assistant._id.toString()] = assistant.name;
+            });
+        }
 
         // Get all activity logs for current user for these sessions
-        const sessionIds = sessions.map(s => s._id);
         let userActivityLogs = [];
         if (currentUserId && sessionIds.length > 0) {
             userActivityLogs = await ActivityLog.find({
@@ -311,8 +362,27 @@ const getCallSessions = async (req, res) => {
 
         const formattedSessions = sessions.map(session => {
             const dateMoment = moment.tz(session.date, 'Africa/Cairo');
-            const assistants = session.assistants || [];
-            const assistantNames = assistants.map(a => a.name || 'Unknown').filter(Boolean);
+            const sessionIdStr = session._id.toString();
+
+            // Get joined assistant names
+            const joinedAssistantNames = [];
+            if (session.assistants && session.assistants.length > 0) {
+                session.assistants.forEach(assistantId => {
+                    const name = assistantMap[assistantId.toString()];
+                    if (name) joinedAssistantNames.push(name);
+                });
+            }
+
+            // Get working assistant names (from student call logs)
+            const workingAssistantNames = [];
+            if (workingAssistantsMap[sessionIdStr]) {
+                workingAssistantsMap[sessionIdStr].forEach(assistantId => {
+                    const name = assistantMap[assistantId];
+                    if (name && !workingAssistantNames.includes(name)) {
+                        workingAssistantNames.push(name);
+                    }
+                });
+            }
 
             // Check if current user has an activity log for this session
             const userLog = userActivityLogs.find(
@@ -323,6 +393,23 @@ const getCallSessions = async (req, res) => {
             // Is currently active in session if log exists but no end_time
             const isCurrentlyActive = userLog && userLog.end_time == null;
 
+            // Format assistant display - prioritize working assistants
+            let assistantDisplay = 'Any';
+
+            if (workingAssistantNames.length > 0) {
+                // Show working assistants (those who actually called students)
+                assistantDisplay = `Working: ${workingAssistantNames.join(', ')}`;
+            } else if (joinedAssistantNames.length > 0) {
+                // Fallback to joined assistants if no working data
+                assistantDisplay = `Joined: ${joinedAssistantNames.join(', ')}`;
+            } else {
+                // Check for assigned assistant
+                const assignedAssistant = session.assistant_id?.name;
+                if (assignedAssistant) {
+                    assistantDisplay = `Assigned: ${assignedAssistant}`;
+                }
+            }
+
             return {
                 id: session._id,
                 name: session.name,
@@ -331,8 +418,9 @@ const getCallSessions = async (req, res) => {
                 status: session.status,
                 assistant_id: session.assistant_id?._id || null,
                 assistant_name: session.assistant_id?.name || null,
-                assistants: assistants.map(a => ({ id: a._id, name: a.name || 'Unknown' })),
-                assistant_names: assistantNames,
+                assistants: session.assistants || [],
+                assistant_names: joinedAssistantNames,
+                assistant_display: assistantDisplay,
                 end_time: session.end_time,
                 hasCompletedParticipation,
                 isCurrentlyActive,

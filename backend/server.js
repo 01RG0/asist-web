@@ -35,7 +35,11 @@ const allowedOrigins = [
     `http://localhost:${PORT}`,
     `http://localhost:5000`,
     `http://127.0.0.1:${PORT}`,
-    `http://127.0.0.1:5000`
+    `http://127.0.0.1:5000`,
+    `https://localhost:${PORT}`,
+    `https://localhost:5000`,
+    `https://127.0.0.1:${PORT}`,
+    `https://127.0.0.1:5000`
 ].filter(Boolean);
 
 app.use(cors({
