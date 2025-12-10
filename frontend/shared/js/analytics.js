@@ -1,64 +1,65 @@
-// Vercel Analytics Integration
-// This file provides a centralized way to initialize Vercel Analytics across all pages
+// Vercel Web Analytics Integration
+// This file provides analytics for the attendance system
+// Uses Vercel Web Analytics via CDN for plain HTML sites
 
 /**
- * Initialize Vercel Analytics
+ * Initialize Vercel Web Analytics
+ * Loads the official Vercel Analytics library from CDN
+ * Reference: https://vercel.com/docs/analytics
  */
 function initVercelAnalytics() {
-    // Load the analytics script dynamically
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@vercel/analytics@1.6.1/dist/index.min.js';
-    script.async = true;
+    try {
+        // Load Vercel Web Analytics script from official CDN
+        // This script automatically injects analytics tracking
+        const script = document.createElement('script');
+        script.src = 'https://cdn.vercel.com/analytics/v0.1';
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => console.debug('Vercel Analytics script failed to load');
+        document.head.appendChild(script);
 
-    script.onload = function() {
-        try {
-            // Use the inject function from the loaded script
-            if (window.VercelAnalytics && window.VercelAnalytics.inject) {
-                window.VercelAnalytics.inject();
-
-                // Track initial page view
-                if (window.VercelAnalytics.track) {
-                    window.VercelAnalytics.track('page_view', {
-                        page: window.location.pathname,
-                        timestamp: new Date().toISOString()
-                    });
-                }
-
-                console.log('Vercel Analytics initialized');
-            }
-        } catch (error) {
-            console.warn('Failed to initialize Vercel Analytics:', error);
-        }
-    };
-
-    script.onerror = function() {
-        console.warn('Failed to load Vercel Analytics script');
-    };
-
-    document.head.appendChild(script);
-}
-
-/**
- * Track custom events
- * @param {string} eventName - Name of the event
- * @param {object} properties - Additional properties to track
- */
-function trackEvent(eventName, properties = {}) {
-    if (window.VercelAnalytics && window.VercelAnalytics.track) {
-        try {
-            window.VercelAnalytics.track(eventName, {
-                ...properties,
-                timestamp: new Date().toISOString(),
-                page: window.location.pathname
-            });
-        } catch (error) {
-            console.warn('Failed to track event:', error);
-        }
+        console.log('Vercel Web Analytics initialized');
+    } catch (error) {
+        console.debug('Error initializing Vercel Analytics:', error);
     }
 }
 
 /**
- * Track user interactions (login, logout, etc.)
+ * Track custom events for user interactions
+ * @param {string} eventName - Name of the event
+ * @param {object} properties - Additional properties to track
+ */
+function trackEvent(eventName, properties = {}) {
+    try {
+        // Use standard web performance API if available
+        if (window.performance && window.performance.mark) {
+            window.performance.mark(`event:${eventName}`);
+        }
+
+        // Prepare event data
+        const data = {
+            event: eventName,
+            ...properties,
+            timestamp: new Date().toISOString(),
+            page: window.location.pathname,
+            url: window.location.href
+        };
+
+        // Send analytics data to backend endpoint via sendBeacon
+        if (navigator.sendBeacon) {
+            try {
+                navigator.sendBeacon('/api/analytics', JSON.stringify(data));
+            } catch (error) {
+                console.debug('Could not send beacon:', error);
+            }
+        }
+    } catch (error) {
+        console.debug('Error tracking event:', error);
+    }
+}
+
+/**
+ * Track user actions (login, logout, etc.)
  * @param {string} action - User action
  * @param {object} details - Additional details
  */
@@ -85,16 +86,42 @@ function trackApiCall(endpoint, method, duration, success) {
     });
 }
 
-// Auto-initialize analytics when this script loads
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVercelAnalytics);
-} else {
-    initVercelAnalytics();
+/**
+ * Track page views
+ */
+function trackPageView() {
+    trackEvent('page_view', {
+        title: document.title,
+        referrer: document.referrer
+    });
 }
 
-// Make functions globally available
+// Auto-initialize analytics when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        initVercelAnalytics();
+        trackPageView();
+    });
+} else {
+    // DOM is already loaded
+    initVercelAnalytics();
+    trackPageView();
+}
+
+// Track page visibility changes
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+        trackEvent('page_visible');
+    } else {
+        trackEvent('page_hidden');
+    }
+});
+
+// Make functions globally available for use in other scripts
 window.Analytics = {
+    initVercelAnalytics,
     trackEvent,
     trackUserAction,
-    trackApiCall
+    trackApiCall,
+    trackPageView
 };
