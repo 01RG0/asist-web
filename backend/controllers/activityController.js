@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const WhatsAppSchedule = require('../models/WhatsAppSchedule');
 const CallSession = require('../models/CallSession');
 const CallSessionStudent = require('../models/CallSessionStudent');
@@ -1038,7 +1039,7 @@ const assignNextStudent = async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.id;
-        const LOCK_TIMEOUT_MINUTES = 15;
+        const LOCK_TIMEOUT_MINUTES = 60; // Increased from 15 to 60 minutes to prevent reassignment
 
         const session = await CallSession.findById(id);
         if (!session) {
@@ -1100,6 +1101,7 @@ const assignNextStudent = async (req, res) => {
             // Refresh lock
             currentAssignment.assigned_at = new Date();
             await currentAssignment.save();
+            console.log(`[Student Assignment] User ${userId} continuing with assigned student ${currentAssignment._id} (${currentAssignment.name})`);
             return await sendResponse(currentAssignment, 'Continued with currently assigned student');
         }
 
@@ -1126,42 +1128,63 @@ const assignNextStudent = async (req, res) => {
                         assigned_at: new Date()
                     }
                 },
-                { new: true, sort: { name: 1 } }
+                { new: true, sort: { createdAt: 1 } } // Sort by creation time for consistent assignment order
             );
         };
 
         let nextStudent = null;
 
         // PRIORITY 1: Absent
+        console.log(`[Student Assignment] User ${userId} looking for absent students in session ${id}`);
         nextStudent = await tryAssign({ attendance_status: { $regex: /absent/i } });
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned absent student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
         // PRIORITY 2: Exam Mark 1-3 (Present)
         // Matches number 1-3 OR string "1", "2.5" etc.
+        console.log(`[Student Assignment] User ${userId} looking for low exam mark students`);
         nextStudent = await tryAssign({
             $or: [
                 { exam_mark: { $gte: 1, $lte: 3 } },
                 { exam_mark: { $regex: /^[1-3](\.[0-9]*)?$/ } }
             ]
         });
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned low exam mark student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
         // PRIORITY 3: HW Not Done / No
+        console.log(`[Student Assignment] User ${userId} looking for homework not done students`);
         nextStudent = await tryAssign({ homework_status: { $regex: /not done|no/i } });
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned homework not done student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
         // PRIORITY 4: HW Not Evaluated / Pending
+        console.log(`[Student Assignment] User ${userId} looking for homework not evaluated students`);
         nextStudent = await tryAssign({ homework_status: { $regex: /not evaluated|pending/i } });
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned homework not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
         // PRIORITY 5: HW Not Complete / Incomplete
+        console.log(`[Student Assignment] User ${userId} looking for homework incomplete students`);
         nextStudent = await tryAssign({ homework_status: { $regex: /not complete|incomplete/i } });
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned homework incomplete student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
         // PRIORITY 6: HW Empty (No Data)
         // Explicitly check for empty string or null, BUT technically "unassigned" falls into Rest.
         // The user asked specifically for "Empty" as a category before "Everything OK".
         // Let's explicitly look for empty HW status students who might have skipped previous regexes.
+        console.log(`[Student Assignment] User ${userId} looking for empty homework status students`);
         nextStudent = await tryAssign({
             $or: [
                 { homework_status: '' },
@@ -1169,16 +1192,24 @@ const assignNextStudent = async (req, res) => {
                 { homework_status: { $exists: false } }
             ]
         });
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned empty homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
 
         // PRIORITY 7: Rest (Everything Else that matches baseQuery)
         // e.g. "Done", "Completed", or high marks
+        console.log(`[Student Assignment] User ${userId} looking for remaining students`);
         nextStudent = await tryAssign({}); // No extra criteria
-        if (nextStudent) return await sendResponse(nextStudent);
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned remaining student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
 
         // If we reach here, no students left
+        console.log(`[Student Assignment] No more students available for user ${userId} in session ${id}`);
         return res.json({
             success: true,
             data: null,
@@ -1424,6 +1455,92 @@ const updateCallSessionStudent = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error updating student'
+        });
+    }
+};
+
+const deleteCallSessionStudent = async (req, res) => {
+    try {
+        const { studentId } = req.params;
+        console.log('DELETE request received for student ID:', studentId);
+        console.log('User making request:', req.user ? req.user.name : 'Unknown');
+
+        // Validate studentId is a valid MongoDB ObjectId
+        console.log('Validating student ID:', studentId);
+        console.log('Is studentId truthy:', !!studentId);
+        console.log('Is valid ObjectId:', mongoose.Types.ObjectId.isValid(studentId));
+
+        if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+            console.log('Invalid student ID:', studentId);
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid student ID',
+                receivedId: studentId
+            });
+        }
+
+        console.log('Attempting to find student with ID:', studentId);
+        const student = await CallSessionStudent.findById(studentId);
+        console.log('Student lookup result:', student);
+        console.log('Student found:', student ? 'Yes' : 'No');
+        if (!student) {
+            console.log('Student not found with ID:', studentId);
+            // Try to see if any students exist at all
+            const totalStudents = await CallSessionStudent.countDocuments();
+            console.log('Total students in database:', totalStudents);
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found',
+                studentId: studentId,
+                totalStudents: totalStudents
+            });
+        }
+
+        console.log('Deleting student:', student.name, 'from session:', student.call_session_id);
+
+        // Log the deletion for audit purposes (only if user is authenticated)
+        const auditLogger = require('../utils/auditLogger');
+        if (req.user && req.user.id) {
+            await auditLogger.logActivity(req.user.id, 'DELETE_STUDENT', {
+                studentId: studentId,
+                studentName: student.name,
+                sessionId: student.call_session_id
+            });
+        } else {
+            console.warn('Cannot log audit: User not authenticated');
+        }
+
+        const deleteResult = await CallSessionStudent.findByIdAndDelete(studentId);
+        console.log('Student delete result:', deleteResult ? 'Success' : 'Failed - student not found');
+        if (!deleteResult) {
+            throw new Error('Student could not be deleted - may not exist');
+        }
+
+        res.json({
+            success: true,
+            message: 'Student removed successfully'
+        });
+    } catch (error) {
+        console.error('Delete student error:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
+
+        // Provide more specific error information
+        let errorMessage = 'Error deleting student';
+        if (error.message.includes('Cast to ObjectId failed')) {
+            errorMessage = 'Invalid student ID format';
+        } else if (error.message.includes('not found')) {
+            errorMessage = 'Student not found in database';
+        }
+
+        res.status(500).json({
+            success: false,
+            message: errorMessage,
+            error: error.message,
+            studentId: studentId
         });
     }
 };
@@ -2244,7 +2361,7 @@ const assignNextRoundTwoStudent = async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.id;
-        const LOCK_TIMEOUT_MINUTES = 15;
+        const LOCK_TIMEOUT_MINUTES = 60; // Increased from 15 to 60 minutes
 
         const session = await CallSession.findById(id);
         if (!session) {
@@ -2264,6 +2381,7 @@ const assignNextRoundTwoStudent = async (req, res) => {
 
         if (currentRoundTwoAssignment) {
             // Return the current assignment
+            console.log(`[Round Two Assignment] User ${userId} continuing with round two student ${currentRoundTwoAssignment._id} (${currentRoundTwoAssignment.name})`);
             const formattedStudent = {
                 id: currentRoundTwoAssignment._id,
                 name: currentRoundTwoAssignment.name,
@@ -2288,6 +2406,7 @@ const assignNextRoundTwoStudent = async (req, res) => {
         }
 
         // 2. Find an available no-answer student not assigned for round two
+        console.log(`[Round Two Assignment] User ${userId} looking for round two students in session ${id}`);
         const availableStudent = await CallSessionStudent.findOne({
             call_session_id: id,
             filter_status: 'no-answer',
@@ -2295,6 +2414,7 @@ const assignNextRoundTwoStudent = async (req, res) => {
         }).sort({ createdAt: 1 }); // Oldest first
 
         if (!availableStudent) {
+            console.log(`[Round Two Assignment] No round two students available for user ${userId} in session ${id}`);
             return res.status(404).json({
                 success: false,
                 message: 'No round two students available for assignment'
@@ -2302,6 +2422,7 @@ const assignNextRoundTwoStudent = async (req, res) => {
         }
 
         // 3. Assign the student for round two
+        console.log(`[Round Two Assignment] Assigned round two student ${availableStudent._id} (${availableStudent.name}) to user ${userId}`);
         availableStudent.round_two_assigned_to = userId;
         availableStudent.round_two_assigned_at = new Date();
         await availableStudent.save();
@@ -2402,6 +2523,7 @@ module.exports = {
     assignNextRoundTwoStudent,
     getCallSessionStudents,
     updateCallSessionStudent,
+    deleteCallSessionStudent,
     assignNextStudent,
     // Activity Log
     createActivityLog,

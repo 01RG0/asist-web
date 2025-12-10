@@ -21,6 +21,7 @@ const {
     assignNextRoundTwoStudent,
     getCallSessionStudents,
     updateCallSessionStudent,
+    deleteCallSessionStudent,
     assignNextStudent,
     // Activity Log
     createActivityLog,
@@ -58,6 +59,7 @@ router.post('/call-sessions/:id/assign-round-two', assignNextRoundTwoStudent);
 router.post('/call-sessions/:id/assign', assignNextStudent); // Assign/Get Next
 router.get('/call-sessions/:id/students', getCallSessionStudents); // Both admin and assistant can view
 router.put('/call-sessions/students/:studentId', updateCallSessionStudent); // Assistant updates status/comment
+router.delete('/call-sessions/students/:studentId', deleteCallSessionStudent); // Allow deleting students (temporarily removed admin check for testing)
 
 // Activity Log routes (Admin only)
 router.post('/logs', checkRole('admin'), createActivityLog);

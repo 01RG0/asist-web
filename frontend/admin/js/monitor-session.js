@@ -627,22 +627,27 @@ async function deleteStudent(index) {
     if (!confirm('Remove this student from the session?')) return;
 
     const student = currentStudents[index];
+    console.log('Student to delete:', student);
+    console.log('Student ID fields:', { _id: student._id, id: student.id });
+
     // If has ID, call DELETE endpoint if exists, or update list.
     // Likely DELETE /activities/call-sessions/students/:id ? Or generic list update.
     // I'll try to remove from list and save list (the 'replace' mode I hope for).
 
-    // Actually, `call-sessions.js` shows PUT to students... 
-    // Let's assume I need to edit the backend to support 'replace' encoded in POST/PUT 
+    // Actually, `call-sessions.js` shows PUT to students...
+    // Let's assume I need to edit the backend to support 'replace' encoded in POST/PUT
     // OR create a delete endpoint.
 
     // For now, let's try the "Update List" strategy effectively.
-    // BUT, the backend might only support ADDING. 
+    // BUT, the backend might only support ADDING.
     // I will implementation a DELETE call assuming standard REST: DELETE .../students/:id
 
     if (student._id || student.id) {
         const sId = student._id || student.id;
+        console.log('Making DELETE request to:', `/activities/call-sessions/students/${sId}`);
         try {
             const res = await window.api.makeRequest('DELETE', `/activities/call-sessions/students/${sId}`);
+            console.log('DELETE response:', res);
             if (res.success) {
                 showAlert('Student removed');
                 loadStudents();
@@ -650,9 +655,12 @@ async function deleteStudent(index) {
                 showAlert('Failed to remove: ' + res.message, 'error');
             }
         } catch (err) {
-            console.error(err);
-            showAlert('Failed to remove student', 'error');
+            console.error('DELETE error:', err);
+            showAlert('Failed to remove student: ' + err.message, 'error');
         }
+    } else {
+        console.error('Student has no _id or id field:', student);
+        showAlert('Cannot delete student: missing ID', 'error');
     }
 }
 
