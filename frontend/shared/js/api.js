@@ -128,6 +128,7 @@ async function refreshAccessToken() {
  */
 async function makeRequest(method, endpoint, data = null) {
     const token = getToken();
+    const startTime = Date.now();
 
     const config = {
         method,
@@ -149,6 +150,12 @@ async function makeRequest(method, endpoint, data = null) {
     try {
         const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
         const result = await response.json();
+        const duration = Date.now() - startTime;
+
+        // Track API call with analytics
+        if (window.Analytics && window.Analytics.trackApiCall) {
+            window.Analytics.trackApiCall(endpoint, method, duration, response.ok);
+        }
 
         if (!response.ok) {
             // Handle unauthorized (expired token) - try to refresh
@@ -162,6 +169,10 @@ async function makeRequest(method, endpoint, data = null) {
                         config.headers['Authorization'] = `Bearer ${newToken}`;
                         try {
                             const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, config);
+                            const retryDuration = Date.now() - startTime;
+                            if (window.Analytics && window.Analytics.trackApiCall) {
+                                window.Analytics.trackApiCall(endpoint, method, retryDuration, retryResponse.ok);
+                            }
                             if (retryResponse.ok) {
                                 const retryResult = await retryResponse.json();
                                 return retryResult;
@@ -192,6 +203,13 @@ async function makeRequest(method, endpoint, data = null) {
 
         return result;
     } catch (error) {
+        const duration = Date.now() - startTime;
+
+        // Track failed API call with analytics
+        if (window.Analytics && window.Analytics.trackApiCall) {
+            window.Analytics.trackApiCall(endpoint, method, duration, false);
+        }
+
         console.error('API Request Error:', error);
         throw error;
     }
