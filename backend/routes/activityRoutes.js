@@ -17,6 +17,8 @@ const {
     // Call Session Students
     importCallSessionStudents,
     undoImportStudents,
+    startRoundTwo,
+    assignNextRoundTwoStudent,
     getCallSessionStudents,
     updateCallSessionStudent,
     assignNextStudent,
