@@ -818,6 +818,10 @@ const stopCallSession = async (req, res) => {
  * Assign Next Available Student
  * POST /api/activities/call-sessions/:id/assign
  */
+/**
+ * Assign Next Available Student
+ * POST /api/activities/call-sessions/:id/assign
+ */
 const assignNextStudent = async (req, res) => {
     try {
         const { id } = req.params;
@@ -836,35 +840,59 @@ const assignNextStudent = async (req, res) => {
             filter_status: '' // Not completed
         });
 
+        const sendResponse = async (student, msg = 'New student assigned') => {
+            // Calculate stats
+            const totalStudents = await CallSessionStudent.countDocuments({ call_session_id: id });
+            const globalCompleted = await CallSessionStudent.countDocuments({
+                call_session_id: id,
+                filter_status: { $ne: '' }
+            });
+            const remainingStudents = totalStudents - globalCompleted;
+
+            // Calculate user-specific completed count
+            const userCompleted = await CallSessionStudent.countDocuments({
+                call_session_id: id,
+                filter_status: { $ne: '' },
+                assigned_to: req.user.id
+            });
+
+            const formattedStudent = {
+                id: student._id,
+                name: student.name,
+                studentPhone: student.student_phone,
+                parentPhone: student.parent_phone,
+                studentId: student.student_id || '',
+                center: student.center || '',
+                examMark: student.exam_mark !== undefined && student.exam_mark !== null ? student.exam_mark : '',
+                attendanceStatus: student.attendance_status || '',
+                homeworkStatus: student.homework_status || '',
+                filterStatus: student.filter_status,
+                comments: student.comments,
+                howMany: student.how_many,
+                totalTest: student.total_test
+            };
+
+            res.json({
+                success: true,
+                data: formattedStudent,
+                stats: {
+                    total: totalStudents,
+                    completed: userCompleted,
+                    remaining: remainingStudents
+                },
+                message: msg
+            });
+        };
+
         if (currentAssignment) {
             // Refresh lock
             currentAssignment.assigned_at = new Date();
             await currentAssignment.save();
-
-            return res.json({
-                success: true,
-                data: {
-                    id: currentAssignment._id,
-                    name: currentAssignment.name,
-                    studentPhone: currentAssignment.student_phone,
-                    parentPhone: currentAssignment.parent_phone,
-                    studentId: currentAssignment.student_id || '',
-                    center: currentAssignment.center || '',
-                    examMark: currentAssignment.exam_mark !== undefined && currentAssignment.exam_mark !== null ? currentAssignment.exam_mark : '',
-                    attendanceStatus: currentAssignment.attendance_status || '',
-                    homeworkStatus: currentAssignment.homework_status || '',
-                    filterStatus: currentAssignment.filter_status,
-                    comments: currentAssignment.comments,
-                    howMany: currentAssignment.how_many,
-                    totalTest: currentAssignment.total_test
-                },
-                message: 'Continued with currently assigned student'
-            });
+            return await sendResponse(currentAssignment, 'Continued with currently assigned student');
         }
 
         // 2. Find next available student
         // Criteria: Not completed (filter_status empty) AND (Unassigned OR Lock expired)
-        // Priority: Absent students first, then Present students
         const lockThreshold = new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60000);
 
         const baseQuery = {
@@ -876,25 +904,10 @@ const assignNextStudent = async (req, res) => {
             ]
         };
 
-        // Try to find an absent student first
-        let nextStudent = await CallSessionStudent.findOneAndUpdate(
-            {
-                ...baseQuery,
-                attendance_status: { $regex: /absent/i }
-            },
-            {
-                $set: {
-                    assigned_to: userId,
-                    assigned_at: new Date()
-                }
-            },
-            { new: true, sort: { name: 1 } }
-        );
-
-        // If no absent student found, find any available student
-        if (!nextStudent) {
-            nextStudent = await CallSessionStudent.findOneAndUpdate(
-                baseQuery,
+        // Helper to try assigning a student with specific criteria
+        const tryAssign = async (criteria) => {
+            return await CallSessionStudent.findOneAndUpdate(
+                { ...baseQuery, ...criteria },
                 {
                     $set: {
                         assigned_to: userId,
@@ -903,57 +916,61 @@ const assignNextStudent = async (req, res) => {
                 },
                 { new: true, sort: { name: 1 } }
             );
-        }
-
-        if (!nextStudent) {
-            return res.json({
-                success: true,
-                data: null,
-                message: 'No more students available'
-            });
-        }
-
-        // Calculate stats
-        // Calculate stats
-        const totalStudents = await CallSessionStudent.countDocuments({ call_session_id: id });
-        const globalCompleted = await CallSessionStudent.countDocuments({
-            call_session_id: id,
-            filter_status: { $ne: '' }
-        });
-        const remainingStudents = totalStudents - globalCompleted;
-
-        // Calculate user-specific completed count
-        const userCompleted = await CallSessionStudent.countDocuments({
-            call_session_id: id,
-            filter_status: { $ne: '' },
-            assigned_to: req.user.id
-        });
-
-        const formattedStudent = {
-            id: nextStudent._id,
-            name: nextStudent.name,
-            studentPhone: nextStudent.student_phone,
-            parentPhone: nextStudent.parent_phone,
-            studentId: nextStudent.student_id || '',
-            center: nextStudent.center || '',
-            examMark: nextStudent.exam_mark !== undefined && nextStudent.exam_mark !== null ? nextStudent.exam_mark : '',
-            attendanceStatus: nextStudent.attendance_status || '',
-            homeworkStatus: nextStudent.homework_status || '',
-            filterStatus: nextStudent.filter_status,
-            comments: nextStudent.comments,
-            howMany: nextStudent.how_many,
-            totalTest: nextStudent.total_test
         };
 
-        res.json({
+        let nextStudent = null;
+
+        // PRIORITY 1: Absent
+        nextStudent = await tryAssign({ attendance_status: { $regex: /absent/i } });
+        if (nextStudent) return await sendResponse(nextStudent);
+
+        // PRIORITY 2: Exam Mark 1-3 (Present)
+        // Matches number 1-3 OR string "1", "2.5" etc.
+        nextStudent = await tryAssign({
+            $or: [
+                { exam_mark: { $gte: 1, $lte: 3 } },
+                { exam_mark: { $regex: /^[1-3](\.[0-9]*)?$/ } }
+            ]
+        });
+        if (nextStudent) return await sendResponse(nextStudent);
+
+        // PRIORITY 3: HW Not Done / No
+        nextStudent = await tryAssign({ homework_status: { $regex: /not done|no/i } });
+        if (nextStudent) return await sendResponse(nextStudent);
+
+        // PRIORITY 4: HW Not Evaluated / Pending
+        nextStudent = await tryAssign({ homework_status: { $regex: /not evaluated|pending/i } });
+        if (nextStudent) return await sendResponse(nextStudent);
+
+        // PRIORITY 5: HW Not Complete / Incomplete
+        nextStudent = await tryAssign({ homework_status: { $regex: /not complete|incomplete/i } });
+        if (nextStudent) return await sendResponse(nextStudent);
+
+        // PRIORITY 6: HW Empty (No Data)
+        // Explicitly check for empty string or null, BUT technically "unassigned" falls into Rest.
+        // The user asked specifically for "Empty" as a category before "Everything OK".
+        // Let's explicitly look for empty HW status students who might have skipped previous regexes.
+        nextStudent = await tryAssign({
+            $or: [
+                { homework_status: '' },
+                { homework_status: null },
+                { homework_status: { $exists: false } }
+            ]
+        });
+        if (nextStudent) return await sendResponse(nextStudent);
+
+
+        // PRIORITY 7: Rest (Everything Else that matches baseQuery)
+        // e.g. "Done", "Completed", or high marks
+        nextStudent = await tryAssign({}); // No extra criteria
+        if (nextStudent) return await sendResponse(nextStudent);
+
+
+        // If we reach here, no students left
+        return res.json({
             success: true,
-            data: formattedStudent,
-            stats: {
-                total: totalStudents,
-                completed: userCompleted,
-                remaining: remainingStudents
-            },
-            message: 'New student assigned'
+            data: null,
+            message: 'No more students available'
         });
 
     } catch (error) {

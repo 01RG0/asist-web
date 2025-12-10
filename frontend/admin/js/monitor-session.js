@@ -597,6 +597,36 @@ function populateFilters() {
     centerSelect.value = currentCenter; // Restore selection
 }
 
+// Helper: Get Student Priority for Sorting
+function getStudentPriority(student) {
+    // 1. Absent (Top Priority - 0)
+    const attendance = (student.attendanceStatus || '').toLowerCase();
+    if (attendance.includes('absent')) return 0;
+
+    // From here on, we assume Present (or at least not Absent)
+    // 2. Exam Mark 1-3 (Priority 1)
+    const mark = parseFloat(student.examMark);
+    if (!isNaN(mark) && mark >= 1 && mark <= 3) return 1;
+
+    // 3. Homework Checks
+    const hw = (student.homeworkStatus || '').toLowerCase().trim();
+
+    // Priority 2: Not Done / No
+    if (hw.includes('not done') || hw === 'no') return 2;
+
+    // Priority 3: Not Evaluated / Pending
+    if (hw.includes('not evaluated') || hw.includes('pending')) return 3;
+
+    // Priority 4: Not Complete / Incomplete
+    if (hw.includes('not complete') || hw.includes('incomplete')) return 4;
+
+    // Priority 5: Empty / No Data
+    if (hw === '') return 5;
+
+    // 4. Default / Rest (Priority 10)
+    return 10;
+}
+
 // Apply Filters
 function applyFilters() {
     const searchTerm = document.getElementById('filter-search').value.toLowerCase();
@@ -665,6 +695,14 @@ function applyFilters() {
         }
 
         return true;
+    });
+
+
+    // Sort logic
+    filteredStudents.sort((a, b) => {
+        const pA = getStudentPriority(a);
+        const pB = getStudentPriority(b);
+        return pA - pB;
     });
 
     renderStudentsTable(filteredStudents);
