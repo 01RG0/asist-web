@@ -13,6 +13,9 @@ const logger = require('./utils/logger');
 // Error handler
 const errorHandler = require('./middleware/errorHandler');
 
+// Analytics utilities
+const { processAnalyticsEvent } = require('./utils/analytics');
+
 // Route imports
 const authRoutes = require('./routes/authRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
@@ -82,6 +85,19 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin/backups', backupRoutes);
 app.use('/api/log', logRoutes);
 app.use('/api/activities', activityRoutes);
+
+/* ---------- Vercel Web Analytics ---------- */
+app.post('/api/analytics', (req, res) => {
+    try {
+        const analyticsData = req.body;
+        // Process analytics event using dedicated utility
+        processAnalyticsEvent(analyticsData);
+        res.status(204).send(); // Return 204 No Content
+    } catch (error) {
+        logger.error('Error processing analytics data:', error);
+        res.status(200).json({ success: true }); // Still return success to not break client
+    }
+});
 
 /* ---------- Health check ---------- */
 app.get('/api/health', (req, res) => {
