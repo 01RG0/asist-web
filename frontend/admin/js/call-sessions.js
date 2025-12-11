@@ -19,6 +19,36 @@ function showAlert(message, type = 'success') {
     }, 5000);
 }
 
+// Format filter status for display
+function formatFilterStatus(status) {
+    if (!status) return 'Pending';
+
+    const statusMap = {
+        'present': 'Present (حاضر)',
+        'wrong-number': 'Wrong Number',
+        'no-answer': 'No Answer',
+        'online-makeup': 'Online Makeup',
+        'left-teacher': 'Left Teacher',
+        'other-makeup': 'Other Makeup',
+        'tired': 'Tired'
+    };
+
+    return statusMap[status] || status;
+}
+
+// Get color for filter status
+function getFilterStatusColor(status) {
+    if (!status) return { bg: '#f3f4f6', text: '#374151' };
+
+    // Present status gets special green styling
+    if (status === 'present') {
+        return { bg: '#dcfce7', text: '#166534' };
+    }
+
+    // Other statuses use the same styling as before
+    return { bg: '#dcfce7', text: '#166534' };
+}
+
 // Load assistants for dropdown
 async function loadAssistants() {
     try {
@@ -524,7 +554,7 @@ async function openStudentsModal(id) {
                             <td>${s.name}</td>
                             <td>${s.studentPhone || '-'}</td>
                             <td>${s.parentPhone || '-'}</td>
-                            <td><span class="badge" style="background: #f3f4f6; color: #374151;">${s.filterStatus || 'Pending'}</span></td>
+                            <td><span class="badge" style="background: ${getFilterStatusColor(s.filterStatus).bg}; color: ${getFilterStatusColor(s.filterStatus).text};">${formatFilterStatus(s.filterStatus)}</span></td>
                             <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${lastComment}</td>
                         </tr>
                     `;
@@ -686,7 +716,7 @@ async function loadMonitorData(id) {
                     return `
                         <tr>
                             <td>${s.name}</td>
-                            <td><span class="badge" style="background: #f3f4f6; color: #374151;">${s.filterStatus || 'Pending'}</span></td>
+                            <td><span class="badge" style="background: ${getFilterStatusColor(s.filterStatus).bg}; color: ${getFilterStatusColor(s.filterStatus).text};">${formatFilterStatus(s.filterStatus)}</span></td>
                             <td>${calledBy}</td>
                             <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${lastComment}">${lastComment}</td>
                         </tr>

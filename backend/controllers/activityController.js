@@ -1047,11 +1047,22 @@ const assignNextStudent = async (req, res) => {
         }
 
         // 1. Check if user already has an assigned, unfinished student
-        const currentAssignment = await CallSessionStudent.findOne({
+        let currentAssignment = await CallSessionStudent.findOne({
             call_session_id: id,
             assigned_to: userId,
             filter_status: '' // Not completed
         });
+
+        // If user has an assignment, verify the student still exists
+        // (in case it was deleted by admin while assistant was working on it)
+        if (currentAssignment) {
+            const studentExists = await CallSessionStudent.findById(currentAssignment._id);
+            if (!studentExists) {
+                console.log(`[Student Assignment] Assigned student ${currentAssignment._id} was deleted, clearing assignment for user ${userId}`);
+                // Clear the assignment since student no longer exists
+                currentAssignment = null;
+            }
+        }
 
         const sendResponse = async (student, msg = 'New student assigned') => {
             // Calculate stats
@@ -1134,7 +1145,7 @@ const assignNextStudent = async (req, res) => {
 
         let nextStudent = null;
 
-        // PRIORITY 1: Absent
+        // PRIORITY 1: Absent students
         console.log(`[Student Assignment] User ${userId} looking for absent students in session ${id}`);
         nextStudent = await tryAssign({ attendance_status: { $regex: /absent/i } });
         if (nextStudent) {
@@ -1142,9 +1153,8 @@ const assignNextStudent = async (req, res) => {
             return await sendResponse(nextStudent);
         }
 
-        // PRIORITY 2: Exam Mark 1-3 (Present)
-        // Matches number 1-3 OR string "1", "2.5" etc.
-        console.log(`[Student Assignment] User ${userId} looking for low exam mark students`);
+        // PRIORITY 2: Exam marks 1-3
+        console.log(`[Student Assignment] User ${userId} looking for students with exam marks 1-3`);
         nextStudent = await tryAssign({
             $or: [
                 { exam_mark: { $gte: 1, $lte: 3 } },
@@ -1156,52 +1166,37 @@ const assignNextStudent = async (req, res) => {
             return await sendResponse(nextStudent);
         }
 
-        // PRIORITY 3: HW Not Done / No
-        console.log(`[Student Assignment] User ${userId} looking for homework not done students`);
-        nextStudent = await tryAssign({ homework_status: { $regex: /not done|no/i } });
-        if (nextStudent) {
-            console.log(`[Student Assignment] Assigned homework not done student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-            return await sendResponse(nextStudent);
-        }
-
-        // PRIORITY 4: HW Not Evaluated / Pending
-        console.log(`[Student Assignment] User ${userId} looking for homework not evaluated students`);
-        nextStudent = await tryAssign({ homework_status: { $regex: /not evaluated|pending/i } });
-        if (nextStudent) {
-            console.log(`[Student Assignment] Assigned homework not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-            return await sendResponse(nextStudent);
-        }
-
-        // PRIORITY 5: HW Not Complete / Incomplete
-        console.log(`[Student Assignment] User ${userId} looking for homework incomplete students`);
-        nextStudent = await tryAssign({ homework_status: { $regex: /not complete|incomplete/i } });
-        if (nextStudent) {
-            console.log(`[Student Assignment] Assigned homework incomplete student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-            return await sendResponse(nextStudent);
-        }
-
-        // PRIORITY 6: HW Empty (No Data)
-        // Explicitly check for empty string or null, BUT technically "unassigned" falls into Rest.
-        // The user asked specifically for "Empty" as a category before "Everything OK".
-        // Let's explicitly look for empty HW status students who might have skipped previous regexes.
-        console.log(`[Student Assignment] User ${userId} looking for empty homework status students`);
+        // PRIORITY 3: Not Done Homework
+        console.log(`[Student Assignment] User ${userId} looking for students who haven't done homework`);
         nextStudent = await tryAssign({
             $or: [
+                { homework_status: { $regex: /not done|no|not submitted/i } },
                 { homework_status: '' },
                 { homework_status: null },
                 { homework_status: { $exists: false } }
             ]
         });
         if (nextStudent) {
-            console.log(`[Student Assignment] Assigned empty homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
             return await sendResponse(nextStudent);
         }
 
+        // PRIORITY 4: Not Evaluated
+        console.log(`[Student Assignment] User ${userId} looking for students who haven't been evaluated`);
+        nextStudent = await tryAssign({
+            homework_status: { $regex: /not evaluated|pending|not checked/i }
+        });
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
-        // PRIORITY 7: Rest (Everything Else that matches baseQuery)
-        // e.g. "Done", "Completed", or high marks
+        // PRIORITY 5: Not Completed (but this is already the base criteria for all assignments)
+        // Since all assignable students have filter_status: '', we'll skip this as redundant
+
+        // PRIORITY 6: Rest of students
         console.log(`[Student Assignment] User ${userId} looking for remaining students`);
-        nextStudent = await tryAssign({}); // No extra criteria
+        nextStudent = await tryAssign({}); // No additional criteria - just baseQuery
         if (nextStudent) {
             console.log(`[Student Assignment] Assigned remaining student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
             return await sendResponse(nextStudent);
@@ -1251,6 +1246,19 @@ const importCallSessionStudents = async (req, res) => {
             });
         }
 
+        // Create temp backup of current students before import
+        const currentStudents = await CallSessionStudent.find({ call_session_id: id });
+        const backupId = await createTempBackup(id, currentStudents);
+        if (!backupId) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to create backup for undo operation'
+            });
+        }
+
+        // Capture timestamp before operations to track all modified students
+        const importTimestamp = new Date();
+
         // Update or Insert student records (Upsert) to prevent duplicates and allow updates
         // We check by Phone (if valid) OR Name
         const bulkOps = students.map(student => {
@@ -1284,11 +1292,14 @@ const importCallSessionStudents = async (req, res) => {
                             exam_mark: student.examMark !== undefined && student.examMark !== null ? student.examMark : null,
                             attendance_status: student.attendanceStatus || '',
                             homework_status: student.homeworkStatus || '',
-                            imported_at: new Date() // Track when this student was imported
+                            imported_at: importTimestamp // Use consistent import timestamp
                         },
                         $setOnInsert: {
                             created_at: new Date(),
                             filter_status: '' // Only set on insert
+                        },
+                        $currentDate: {
+                            updatedAt: true // Set updatedAt to current date for both inserts and updates
                         }
                     },
                     upsert: true
@@ -1296,13 +1307,50 @@ const importCallSessionStudents = async (req, res) => {
             };
         });
 
+        console.log('Starting bulk operations with timestamp:', importTimestamp);
+        console.log('Number of bulk operations:', bulkOps.length);
+
         let importedCount = 0;
         let updatedCount = 0;
+
+        let affectedStudentIds = [];
 
         if (bulkOps.length > 0) {
             const result = await CallSessionStudent.bulkWrite(bulkOps);
             importedCount = result.upsertedCount || 0;
             updatedCount = result.modifiedCount || 0;
+
+            // Find all students that were affected by this import (updated/created since importTimestamp)
+            // This includes both newly inserted and updated existing students
+            const affectedStudents = await CallSessionStudent.find({
+                call_session_id: id,
+                updatedAt: { $gte: importTimestamp }
+            });
+
+            affectedStudentIds = affectedStudents.map(student => student._id.toString());
+
+            console.log('Bulk write result:', {
+                upsertedCount: result.upsertedCount,
+                modifiedCount: result.modifiedCount,
+                matchedCount: result.matchedCount,
+                affectedStudentsCount: affectedStudents.length,
+                affectedStudentIds: affectedStudentIds
+            });
+        }
+
+        // Verify that students were actually updated
+        const recentlyUpdated = await CallSessionStudent.find({
+            call_session_id: id,
+            updatedAt: { $gte: importTimestamp }
+        }).limit(3);
+
+        console.log('Students found with updatedAt >= importTimestamp after import:', recentlyUpdated.length);
+        if (recentlyUpdated.length > 0) {
+            console.log('Sample updated student:', {
+                name: recentlyUpdated[0].name,
+                updatedAt: recentlyUpdated[0].updatedAt,
+                imported_at: recentlyUpdated[0].imported_at
+            });
         }
 
         await logAuditAction(req.user.id, 'IMPORT_CALL_SESSION_STUDENTS', {
@@ -1313,7 +1361,10 @@ const importCallSessionStudents = async (req, res) => {
         });
 
         // Generate an undo token that expires in 10 minutes
-        const undoToken = `${id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // Use the same timestamp as imported_at for consistency
+        const undoToken = `${id}_${importTimestamp.getTime()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log('Sending response with backupId:', backupId);
 
         res.status(200).json({
             success: true,
@@ -1323,7 +1374,8 @@ const importCallSessionStudents = async (req, res) => {
                 imported: importedCount,
                 updated: updatedCount,
                 undo_token: undoToken,
-                undo_expires_in: 10 * 60 * 1000 // 10 minutes in milliseconds
+                undo_expires_in: 10 * 60 * 1000, // 10 minutes in milliseconds
+                backupId: backupId  // Include backup ID for undo
             }
         });
     } catch (error) {
@@ -1418,7 +1470,7 @@ const getCallSessionStudents = async (req, res) => {
 const updateCallSessionStudent = async (req, res) => {
     try {
         const { studentId } = req.params;
-        const { filterStatus, comment, howMany, totalTest } = req.body;
+        const { filterStatus, attendanceStatus, comment, howMany, totalTest } = req.body;
         const userId = req.user.id; // Get current user ID
 
         const student = await CallSessionStudent.findById(studentId);
@@ -1432,7 +1484,11 @@ const updateCallSessionStudent = async (req, res) => {
         // Track who updated this student last
         student.last_called_by = userId;
 
-        if (filterStatus !== undefined) student.filter_status = filterStatus;
+        if (filterStatus !== undefined) {
+            // It's a filter status (wrong-number, no-answer, present, etc.)
+            student.filter_status = filterStatus;
+        }
+        if (attendanceStatus !== undefined) student.attendance_status = attendanceStatus;
         if (howMany !== undefined) student.how_many = howMany;
         if (totalTest !== undefined) student.total_test = totalTest;
 
@@ -1498,6 +1554,12 @@ const deleteCallSessionStudent = async (req, res) => {
 
         console.log('Deleting student:', student.name, 'from session:', student.call_session_id);
 
+        // If student was assigned to someone, we need to clear that assignment
+        // This prevents assistants from getting stuck
+        if (student.assigned_to) {
+            console.log('Clearing assignment for assistant:', student.assigned_to);
+        }
+
         // Log the deletion for audit purposes (only if user is authenticated)
         try {
             const auditLogger = require('../utils/auditLogger');
@@ -1505,7 +1567,8 @@ const deleteCallSessionStudent = async (req, res) => {
                 await auditLogger.logAuditAction(req.user.id, 'DELETE_STUDENT', {
                     studentId: studentId,
                     studentName: student.name,
-                    sessionId: student.call_session_id
+                    sessionId: student.call_session_id,
+                    wasAssigned: !!student.assigned_to
                 });
             } else {
                 console.warn('Cannot log audit: User not authenticated');
@@ -2209,10 +2272,95 @@ const deleteActivityLog = async (req, res) => {
  * Undo Import Students
  * POST /api/activities/call-sessions/:id/undo-import
  */
+// Create temp backup of students before import
+const createTempBackup = async (sessionId, students) => {
+    try {
+        const backupId = `backup_${sessionId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Store backup in a simple in-memory store for now (could be Redis or database)
+        // For production, this should be stored in database or Redis
+        if (!global.tempBackups) {
+            global.tempBackups = new Map();
+        }
+
+        const backupData = {
+            sessionId,
+            students: JSON.parse(JSON.stringify(students)), // Deep copy
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+        };
+
+        global.tempBackups.set(backupId, backupData);
+
+        // Clean up expired backups
+        for (const [key, backup] of global.tempBackups.entries()) {
+            if (backup.expiresAt < new Date()) {
+                global.tempBackups.delete(key);
+            }
+        }
+
+        console.log(`Created temp backup ${backupId} for session ${sessionId} with ${students.length} students`);
+        return backupId;
+    } catch (error) {
+        console.error('Error creating temp backup:', error);
+        return null;
+    }
+};
+
+// Restore from temp backup
+const restoreFromTempBackup = async (sessionId, backupId) => {
+    try {
+        if (!global.tempBackups || !global.tempBackups.has(backupId)) {
+            throw new Error('Backup not found or expired');
+        }
+
+        const backup = global.tempBackups.get(backupId);
+
+        if (backup.sessionId !== sessionId) {
+            throw new Error('Backup does not belong to this session');
+        }
+
+        if (backup.expiresAt < new Date()) {
+            global.tempBackups.delete(backupId);
+            throw new Error('Backup has expired');
+        }
+
+        // Replace all students in the session with the backup data
+        await CallSessionStudent.deleteMany({ call_session_id: sessionId });
+
+        if (backup.students.length > 0) {
+            // Clear any assignments that might conflict
+            const studentsToInsert = backup.students.map(student => ({
+                ...student,
+                call_session_id: sessionId,
+                _id: undefined, // Let MongoDB generate new IDs
+                assigned_to: undefined, // Clear any old assignments
+                assigned_at: undefined
+            }));
+
+            await CallSessionStudent.insertMany(studentsToInsert);
+        }
+
+        // Clean up the backup
+        global.tempBackups.delete(backupId);
+
+        console.log(`Restored ${backup.students.length} students from backup ${backupId} for session ${sessionId}`);
+        return backup.students.length;
+
+    } catch (error) {
+        console.error('Error restoring from temp backup:', error);
+        throw error;
+    }
+};
+
 const undoImportStudents = async (req, res) => {
+    console.log('UNDO FUNCTION CALLED - Session:', req.params.id, 'Token:', req.body.undo_token);
+
     try {
         const { id } = req.params;
-        const { undo_token } = req.body;
+        const { undo_token, backupId } = req.body;
+
+        console.log('Undo import request received for session:', id, 'token:', undo_token, 'backupId:', backupId);
 
         if (!undo_token) {
             return res.status(400).json({
@@ -2221,10 +2369,21 @@ const undoImportStudents = async (req, res) => {
             });
         }
 
+        if (!backupId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Backup ID is required'
+            });
+        }
+
         // Parse undo token: sessionId_timestamp_randomString
         const [tokenSessionId, timestampStr] = undo_token.split('_');
 
+        console.log('Parsed token - sessionId:', tokenSessionId, 'timestamp:', timestampStr);
+        console.log('Expected sessionId:', id);
+
         if (tokenSessionId !== id) {
+            console.log('Token validation failed: session ID mismatch');
             return res.status(400).json({
                 success: false,
                 message: 'Invalid undo token for this session'
@@ -2234,22 +2393,94 @@ const undoImportStudents = async (req, res) => {
         const importTimestamp = new Date(parseInt(timestampStr));
         const now = new Date();
 
+        console.log('Import timestamp:', importTimestamp, 'Current time:', now);
+
         // Check if undo is still valid (within 10 minutes)
         const timeDiff = now - importTimestamp;
         const maxUndoTime = 10 * 60 * 1000; // 10 minutes
 
+        console.log('Time difference:', timeDiff, 'Max allowed:', maxUndoTime);
+
         if (timeDiff > maxUndoTime) {
+            console.log('Undo time expired');
             return res.status(400).json({
                 success: false,
                 message: 'Undo time has expired (10 minutes limit)'
             });
         }
 
-        // Find students imported after the timestamp
+        // Restore from backup
+        try {
+            const restoredCount = await restoreFromTempBackup(id, backupId);
+
+            await logAuditAction(req.user.id, 'UNDO_IMPORT_STUDENTS', {
+                session_id: id,
+                restored_count: restoredCount,
+                backup_id: backupId
+            });
+
+            res.status(200).json({
+                success: true,
+                message: `Successfully restored ${restoredCount} students from backup`,
+                data: {
+                    restored_count: restoredCount
+                }
+            });
+
+        } catch (restoreError) {
+            console.error('Failed to restore from backup:', restoreError);
+            return res.status(500).json({
+                success: false,
+                message: `Failed to restore from backup: ${restoreError.message}`
+            });
+        }
+
+        // Convert string IDs to ObjectIds for MongoDB query
+        const objectIds = newlyAddedStudentIds.map(id => {
+            try {
+                return require('mongoose').Types.ObjectId(id);
+            } catch (error) {
+                console.error('Invalid ObjectId in newlyAddedStudentIds:', id);
+                return null;
+            }
+        }).filter(id => id !== null);
+
+        console.log('Converted', newlyAddedStudentIds.length, 'string IDs to', objectIds.length, 'valid ObjectIds');
+
+        if (objectIds.length === 0) {
+            // If no valid IDs, check if this is an import that only updated existing students
+            console.log('No valid student IDs found. This might be an import that only updated existing students.');
+            return res.status(200).json({
+                success: true,
+                message: 'Import undo completed - no new students were added to remove',
+                data: {
+                    removed_count: 0,
+                    reason: 'No new students were added during this import'
+                }
+            });
+        }
+
+        // Safety check: don't allow undoing more than 100 students at once
+        if (objectIds.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: `Too many students to undo (${objectIds.length}). Maximum allowed is 100.`
+            });
+        }
+
+        // Find students by their specific IDs
         const studentsToRemove = await CallSessionStudent.find({
-            call_session_id: id,
-            imported_at: { $gte: importTimestamp }
+            _id: { $in: objectIds }
         });
+
+        console.log('Found', studentsToRemove.length, 'students to remove by ID');
+
+        if (studentsToRemove.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No students found with the provided IDs'
+            });
+        }
 
         if (studentsToRemove.length === 0) {
             return res.status(404).json({
@@ -2258,23 +2489,47 @@ const undoImportStudents = async (req, res) => {
             });
         }
 
-        // Remove the students
+        // First, clear any assignments for these students to prevent assistant lock-in
+        await CallSessionStudent.updateMany(
+            { _id: { $in: objectIds } },
+            {
+                $unset: {
+                    assigned_to: 1,
+                    assigned_at: 1
+                }
+            }
+        );
+
+        // Then remove the students
+        console.log('About to delete', studentsToRemove.length, 'students by ID');
         const result = await CallSessionStudent.deleteMany({
-            call_session_id: id,
-            imported_at: { $gte: importTimestamp }
+            _id: { $in: objectIds }
+        });
+
+        console.log('Delete result:', {
+            acknowledged: result.acknowledged,
+            deletedCount: result.deletedCount
         });
 
         await logAuditAction(req.user.id, 'UNDO_IMPORT_STUDENTS', {
             session_id: id,
             removed_count: result.deletedCount,
-            import_timestamp: importTimestamp
+            student_ids: newlyAddedStudentIds
         });
+
+        // Verify the deletion by checking if the specific students still exist
+        const stillExistCount = await CallSessionStudent.countDocuments({
+            _id: { $in: objectIds }
+        });
+
+        console.log('Students still existing after deletion:', stillExistCount);
 
         res.status(200).json({
             success: true,
             message: `Successfully removed ${result.deletedCount} recently imported students`,
             data: {
-                removed_count: result.deletedCount
+                removed_count: result.deletedCount,
+                remaining_students: remainingStudents
             }
         });
 
@@ -2506,6 +2761,23 @@ const assignNextRoundTwoStudent = async (req, res) => {
         });
     }
 };
+
+// Periodic cleanup of expired backups
+setInterval(() => {
+    if (global.tempBackups) {
+        const now = new Date();
+        let cleaned = 0;
+        for (const [key, backup] of global.tempBackups.entries()) {
+            if (backup.expiresAt < now) {
+                global.tempBackups.delete(key);
+                cleaned++;
+            }
+        }
+        if (cleaned > 0) {
+            console.log(`Cleaned up ${cleaned} expired temp backups`);
+        }
+    }
+}, 5 * 60 * 1000); // Run every 5 minutes
 
 module.exports = {
     // WhatsApp Schedule

@@ -48,6 +48,36 @@ function getHomeworkColor(status) {
     }
 }
 
+// Format filter status for display
+function formatFilterStatus(status) {
+    if (!status) return 'Pending';
+
+    const statusMap = {
+        'present': 'Present (حاضر)',
+        'wrong-number': 'Wrong Number',
+        'no-answer': 'No Answer',
+        'online-makeup': 'Online Makeup',
+        'left-teacher': 'Left Teacher',
+        'other-makeup': 'Other Makeup',
+        'tired': 'Tired'
+    };
+
+    return statusMap[status] || status;
+}
+
+// Get color for filter status
+function getFilterStatusColor(status) {
+    if (!status) return { bg: '#f3f4f6', text: '#374151' };
+
+    // Present status gets special green styling
+    if (status === 'present') {
+        return { bg: '#dcfce7', text: '#166534' };
+    }
+
+    // Other statuses use the same styling as before
+    return { bg: '#dcfce7', text: '#166534' };
+}
+
 // Initialize
 async function init() {
     await loadSessionDetails();
@@ -144,8 +174,8 @@ function renderStudentsTable(students) {
                     ${s.homeworkStatus ? `<span style="color: ${getHomeworkColor(s.homeworkStatus)}; font-weight: 600;">${s.homeworkStatus}</span>` : '-'}
                 </td>
                 <td>
-                    <span class="badge" style="background: ${s.filterStatus ? '#dcfce7' : '#f3f4f6'}; color: ${s.filterStatus ? '#166534' : '#374151'};">
-                        ${s.filterStatus || 'Pending'}
+                    <span class="badge" style="background: ${getFilterStatusColor(s.filterStatus).bg}; color: ${getFilterStatusColor(s.filterStatus).text};">
+                        ${formatFilterStatus(s.filterStatus)}
                     </span>
                 </td>
                 <td>${assigned}</td>
@@ -275,8 +305,9 @@ function handleImport(file) {
             let addedCount = 0;
             let updatedCount = 0;
             const finalStudents = [...currentStudents];
+            const newlyAddedIndices = []; // Track indices of newly added students
 
-            newStudents.forEach(newS => {
+            newStudents.forEach((newS, index) => {
                 // Find match by Phone (preferred) or Name
                 let existingIndex = -1;
 
@@ -309,6 +340,7 @@ function handleImport(file) {
                     updatedCount++; // Note: This increments even if nothing effectively changed, simplified for now
                 } else {
                     // Add new
+                    const newStudentIndex = finalStudents.length;
                     finalStudents.push({
                         name: newS.name,
                         studentPhone: newS.studentPhone || '',
@@ -321,6 +353,7 @@ function handleImport(file) {
                         filterStatus: '',
                         comments: []
                     });
+                    newlyAddedIndices.push(newStudentIndex);
                     addedCount++;
                 }
             });
@@ -392,7 +425,7 @@ async function saveStudentsList(studentsList) {
 
             // Show undo button if undo data is available
             if (response.data && response.data.undo_token) {
-                showUndoButton(response.data.undo_token, response.data.undo_expires_in);
+                showUndoButton(response.data.undo_token, response.data.undo_expires_in, response.data.backupId);
             }
         } else {
             throw new Error(response.message || 'Save failed');
@@ -403,32 +436,44 @@ async function saveStudentsList(studentsList) {
 }
 
 // Undo Import Functionality
-function showUndoButton(undoToken, expiresInMs) {
+function showUndoButton(undoToken, expiresInMs, backupId) {
+    console.log('showUndoButton called with token:', undoToken, 'expires in:', expiresInMs, 'backupId:', backupId);
+
     // Remove any existing undo button
     const existingUndo = document.getElementById('undo-import-btn');
     if (existingUndo) {
         existingUndo.remove();
     }
 
+    // Generate unique IDs to avoid conflicts
+    const buttonId = 'undo-import-btn';
+    const timerId = 'undo-timer-' + Date.now();
+
     // Create undo button
     const undoBtn = document.createElement('button');
-    undoBtn.id = 'undo-import-btn';
+    undoBtn.id = buttonId;
     undoBtn.className = 'btn btn-sm btn-outline undo-btn';
     undoBtn.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3,12 9,6 21,18"></polyline>
             <path d="m3,12 9,6 9-6"></path>
         </svg>
-        Undo Import (<span id="undo-timer">10:00</span>)
+        Undo Import (<span id="${timerId}">10:00</span>)
     `;
 
     // Insert after the import button
     const importBtn = document.getElementById('import-btn');
-    importBtn.parentNode.insertBefore(undoBtn, importBtn.nextSibling);
+    if (importBtn && importBtn.parentNode) {
+        importBtn.parentNode.insertBefore(undoBtn, importBtn.nextSibling);
+        console.log('Undo button inserted after import button');
+    } else {
+        console.error('Import button not found for undo button insertion');
+        return;
+    }
 
     // Start countdown timer
     let timeLeft = Math.floor(expiresInMs / 1000);
-    const timerElement = document.getElementById('undo-timer');
+    const timerElement = document.getElementById(timerId);
 
     const countdown = setInterval(() => {
         timeLeft--;
@@ -444,6 +489,8 @@ function showUndoButton(undoToken, expiresInMs) {
 
     // Add click handler
     undoBtn.addEventListener('click', async () => {
+        console.log('Undo button clicked, token:', undoToken, 'sessionId:', currentSessionId);
+
         if (!confirm('Are you sure you want to undo the last import? This will remove the recently added students.')) {
             return;
         }
@@ -452,12 +499,18 @@ function showUndoButton(undoToken, expiresInMs) {
             undoBtn.disabled = true;
             undoBtn.textContent = 'Undoing...';
 
+            console.log('Making undo request to:', `/activities/call-sessions/${currentSessionId}/undo-import`);
+
             const response = await window.api.makeRequest('POST', `/activities/call-sessions/${currentSessionId}/undo-import`, {
-                undo_token: undoToken
+                undo_token: undoToken,
+                backupId: backupId
             });
 
+            console.log('Undo response:', response);
+
             if (response.success) {
-                showAlert(`Successfully removed ${response.data.removed_count} recently imported students`);
+                const restoredCount = response.data.restored_count || 0;
+                showAlert(`Successfully restored ${restoredCount} students from backup`);
                 await loadStudents(); // Reload the students list
                 clearInterval(countdown); // Stop the timer
                 undoBtn.remove(); // Remove the button
@@ -466,6 +519,7 @@ function showUndoButton(undoToken, expiresInMs) {
             }
         } catch (error) {
             console.error('Undo error:', error);
+            console.error('Error details:', error.response || error);
             showAlert('Failed to undo import: ' + (error.response?.data?.message || error.message), 'error');
             undoBtn.disabled = false;
             undoBtn.innerHTML = `
@@ -473,7 +527,7 @@ function showUndoButton(undoToken, expiresInMs) {
                     <polyline points="3,12 9,6 21,18"></polyline>
                     <path d="m3,12 9,6 9-6"></path>
                 </svg>
-                Undo Import (<span id="undo-timer">${timeLeft > 0 ? Math.floor(timeLeft / 60) + ':' + (timeLeft % 60).toString().padStart(2, '0') : '00:00'}</span>)
+                Undo Import (<span id="${timerId}">${timeLeft > 0 ? Math.floor(timeLeft / 60) + ':' + (timeLeft % 60).toString().padStart(2, '0') : '00:00'}</span>)
             `;
         }
     });
@@ -706,7 +760,7 @@ function exportStudents() {
                 'Exam Mark': s.examMark !== undefined && s.examMark !== null && s.examMark !== '' ? s.examMark : '',
                 'Attendance Status': s.attendanceStatus || '',
                 'Homework Status': s.homeworkStatus || '',
-                'Status': s.filterStatus || 'Pending',
+                'Status': formatFilterStatus(s.filterStatus),
                 'Last Called By': s.lastCalledBy || '',
                 'Assigned To': s.assignedTo || '',
                 'Last Comment': lastComment
