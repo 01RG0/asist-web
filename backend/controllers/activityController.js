@@ -1169,12 +1169,7 @@ const assignNextStudent = async (req, res) => {
         // PRIORITY 3: Not Done Homework
         console.log(`[Student Assignment] User ${userId} looking for students who haven't done homework`);
         nextStudent = await tryAssign({
-            $or: [
-                { homework_status: { $regex: /not done|no|not submitted/i } },
-                { homework_status: '' },
-                { homework_status: null },
-                { homework_status: { $exists: false } }
-            ]
+            homework_status: { $regex: /not done|no|not submitted/i }
         });
         if (nextStudent) {
             console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
@@ -1191,10 +1186,31 @@ const assignNextStudent = async (req, res) => {
             return await sendResponse(nextStudent);
         }
 
-        // PRIORITY 5: Not Completed (but this is already the base criteria for all assignments)
-        // Since all assignable students have filter_status: '', we'll skip this as redundant
+        // PRIORITY 5: Not Complete / Incomplete
+        console.log(`[Student Assignment] User ${userId} looking for students with incomplete homework`);
+        nextStudent = await tryAssign({
+            homework_status: { $regex: /not complete|incomplete/i }
+        });
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned incomplete homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
 
-        // PRIORITY 6: Rest of students
+        // PRIORITY 6: Empty Homework Status
+        console.log(`[Student Assignment] User ${userId} looking for students with empty homework status`);
+        nextStudent = await tryAssign({
+            $or: [
+                { homework_status: '' },
+                { homework_status: null },
+                { homework_status: { $exists: false } }
+            ]
+        });
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned empty homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
+        }
+
+        // PRIORITY 7: Rest of students
         console.log(`[Student Assignment] User ${userId} looking for remaining students`);
         nextStudent = await tryAssign({}); // No additional criteria - just baseQuery
         if (nextStudent) {
