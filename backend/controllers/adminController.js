@@ -124,6 +124,7 @@ const getAllAssistants = async (req, res) => {
             id: assistant._id,
             name: assistant.name,
             email: assistant.email,
+            role: assistant.role,
             created_at: assistant.createdAt,
             centers: assistant.assignedCenters?.map(c => c.name).join(', ') || ''
         }));
@@ -133,12 +134,12 @@ const getAllAssistants = async (req, res) => {
             data: formattedAssistants
         });
     } catch (error) {
-        console.error('Get assistants error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching assistants'
-        });
-    }
+    console.error('Get assistants error:', error);
+    res.status(500).json({
+        success: false,
+        message: 'Error fetching assistants'
+    });
+}
 };
 
 /**
@@ -639,9 +640,9 @@ const getAttendanceRecords = async (req, res) => {
         if (subject) {
             const subjectLower = subject.toLowerCase();
             filteredRecords = records.filter(r => {
-                const sessionSubject = r.session_subject || 
-                    r.session_id?.subject || 
-                    r.call_session_id?.name || 
+                const sessionSubject = r.session_subject ||
+                    r.session_id?.subject ||
+                    r.call_session_id?.name ||
                     '';
                 return sessionSubject.toLowerCase().includes(subjectLower);
             });
@@ -649,11 +650,11 @@ const getAttendanceRecords = async (req, res) => {
 
         const formattedRecords = filteredRecords.map(r => {
             // Determine subject from session, call_session, or session_subject
-            const subject = r.session_subject || 
-                r.session_id?.subject || 
-                r.call_session_id?.name || 
+            const subject = r.session_subject ||
+                r.session_id?.subject ||
+                r.call_session_id?.name ||
                 'Unknown';
-            
+
             // Determine start_time from session or call_session
             let start_time = r.session_id?.start_time;
             if (!start_time && r.call_session_id) {
@@ -664,7 +665,7 @@ const getAttendanceRecords = async (req, res) => {
                 callDate.minutes(parseInt(minutes));
                 start_time = callDate.toDate();
             }
-            
+
             return {
                 id: r._id,
                 time_recorded: r.time_recorded,
@@ -1022,9 +1023,9 @@ const getAttendanceById = async (req, res) => {
             assistant_name: attendance.assistant_id?.name || 'Unknown',
             session_id: attendance.session_id?._id,
             call_session_id: attendance.call_session_id?._id,
-            session_subject: attendance.session_subject || 
-                attendance.session_id?.subject || 
-                attendance.call_session_id?.name || 
+            session_subject: attendance.session_subject ||
+                attendance.session_id?.subject ||
+                attendance.call_session_id?.name ||
                 'Unknown',
             center_id: attendance.center_id?._id,
             center_name: attendance.center_id?.name || 'Unknown',

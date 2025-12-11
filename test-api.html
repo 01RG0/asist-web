@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test</title>
+</head>
+<body>
+    <h1>API Test</h1>
+    <button onclick="testLogin()">Test Login</button>
+    <button onclick="testUsers()">Test Users (requires login first)</button>
+    <div id="results"></div>
+
+    <script>
+        let token = null;
+
+        function log(message) {
+            document.getElementById('results').innerHTML += '<p>' + message + '</p>';
+            console.log(message);
+        }
+
+        async function testLogin() {
+            log('Testing login...');
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: 'admin@example.com',
+                        password: 'admin123'
+                    })
+                });
+
+                const data = await response.json();
+                log('Login response: ' + response.status + ' - ' + JSON.stringify(data));
+
+                if (data.success) {
+                    token = data.data.token;
+                    log('Login successful, token received');
+                }
+            } catch (error) {
+                log('Login error: ' + error.message);
+            }
+        }
+
+        async function testUsers() {
+            if (!token) {
+                log('Please login first');
+                return;
+            }
+
+            log('Testing users endpoint...');
+            try {
+                const response = await fetch('/api/admin/users', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+                log('Users response: ' + response.status + ' - ' + (data.success ? 'Success' : 'Failed'));
+
+                if (data.success) {
+                    log('Found ' + data.data.length + ' users');
+                } else {
+                    log('Error: ' + data.message);
+                }
+            } catch (error) {
+                log('Users error: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
+
+

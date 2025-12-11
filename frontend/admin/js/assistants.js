@@ -21,7 +21,7 @@ function showAlert(message, type = 'success') {
 // Load all assistants
 async function loadAssistants() {
     try {
-        const response = await window.api.makeRequest('GET', '/admin/users');
+        const response = await window.api.makeRequest('GET', '/admin/assistants');
 
         if (response.success) {
             displayAssistants(response.data);
