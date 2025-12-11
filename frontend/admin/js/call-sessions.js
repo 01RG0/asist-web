@@ -212,8 +212,8 @@ function openSessionModal(sessionId = null) {
         document.getElementById('session-id').value = '';
         document.getElementById('file-upload-group').style.display = 'block';
 
-        // Default to today
-        const today = new Date().toISOString().split('T')[0];
+        // Default to today (Cairo time)
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
         document.getElementById('session-date').value = today;
     }
 
