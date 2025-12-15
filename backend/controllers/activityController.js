@@ -1371,15 +1371,30 @@ const importCallSessionStudents = async (req, res) => {
                 filter.student_id = String(student.studentId).trim();
                 // call_session_id already in filter - ensures session isolation
             }
-            // No Student ID provided - always insert as new (don't try to match)
-            // Force new insert by using a filter that will never match existing records
+            // No Student ID provided - try to match by name + phone combination to avoid duplicates
+            // If no match found, it will insert as new
             else {
-                // Use a non-existent field to force insert - won't match anything
-                filter = {
-                    call_session_id: id,
-                    student_id: '', // Empty student_id
-                    _forceNewInsert: true // Field that doesn't exist - forces new insert
-                };
+                // Match by name and student phone (if provided) to prevent exact duplicates
+                // This helps when manually adding students without studentId
+                const nameMatch = student.name && String(student.name).trim();
+                const phoneMatch = student.studentPhone && String(student.studentPhone).trim();
+                
+                if (nameMatch && phoneMatch) {
+                    // Try to match by name + phone to avoid duplicates
+                    filter.name = nameMatch;
+                    filter.student_phone = phoneMatch;
+                } else if (nameMatch) {
+                    // If only name is provided, match by name only
+                    filter.name = nameMatch;
+                } else {
+                    // If neither name nor phone, force new insert with unique filter
+                    filter = {
+                        call_session_id: id,
+                        student_id: '', // Empty student_id
+                        name: '', // Empty name - won't match existing
+                        _forceNewInsert: true // Field that doesn't exist - forces new insert
+                    };
+                }
             }
 
             // Build update object - always set these fields
@@ -1391,18 +1406,23 @@ const importCallSessionStudents = async (req, res) => {
                     parent_phone: student.parentPhone || '',
                     student_id: student.studentId || '', // Set Student ID (empty if not provided)
                     center: student.center || '',
-                    exam_mark: student.examMark !== undefined && student.examMark !== null ? student.examMark : null,
+                    exam_mark: student.examMark !== undefined && student.examMark !== null && student.examMark !== '' ? student.examMark : null,
                     attendance_status: student.attendanceStatus || '',
                     homework_status: student.homeworkStatus || '',
                     imported_at: importTimestamp // Track when imported
                 },
                 $setOnInsert: {
-                    filter_status: '' // Only set filter_status on new inserts
+                    filter_status: student.filterStatus || '' // Set filter_status on new inserts (use provided value or empty)
                 },
                 $currentDate: {
                     updatedAt: true // Always update timestamp
                 }
             };
+
+            // If filterStatus is explicitly provided and not empty, update it even for existing records
+            if (student.filterStatus !== undefined && student.filterStatus !== null && student.filterStatus !== '') {
+                updateOperation.$set.filter_status = student.filterStatus;
+            }
 
             return {
                 updateOne: {
@@ -1591,7 +1611,20 @@ const getCallSessionStudents = async (req, res) => {
 const updateCallSessionStudent = async (req, res) => {
     try {
         const { studentId } = req.params;
-        const { filterStatus, attendanceStatus, comment, howMany, totalTest } = req.body;
+        const { 
+            filterStatus, 
+            attendanceStatus, 
+            homeworkStatus,
+            comment, 
+            howMany, 
+            totalTest,
+            name,
+            studentPhone,
+            parentPhone,
+            studentId: studentIdField,
+            center,
+            examMark
+        } = req.body;
         const userId = req.user.id; // Get current user ID
 
         const student = await CallSessionStudent.findById(studentId);
@@ -1605,11 +1638,23 @@ const updateCallSessionStudent = async (req, res) => {
         // Track who updated this student last
         student.last_called_by = userId;
 
+        // Update basic fields if provided
+        if (name !== undefined) student.name = name;
+        if (studentPhone !== undefined) student.student_phone = studentPhone;
+        if (parentPhone !== undefined) student.parent_phone = parentPhone;
+        if (studentIdField !== undefined) student.student_id = studentIdField;
+        if (center !== undefined) student.center = center;
+        if (examMark !== undefined) {
+            student.exam_mark = examMark !== null && examMark !== '' ? examMark : null;
+        }
+
+        // Update status fields
         if (filterStatus !== undefined) {
             // It's a filter status (wrong-number, no-answer, present, etc.)
             student.filter_status = filterStatus;
         }
         if (attendanceStatus !== undefined) student.attendance_status = attendanceStatus;
+        if (homeworkStatus !== undefined) student.homework_status = homeworkStatus;
         if (howMany !== undefined) student.how_many = howMany;
         if (totalTest !== undefined) student.total_test = totalTest;
 

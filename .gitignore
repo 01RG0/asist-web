@@ -33,3 +33,4 @@ COMPREHENSIVE_TEST_GUIDE.md
 cursor_fix_issues_in_asist_web_app.md
 *.md
 attendance_report.csv
+scripts/restore-deleted-student.js

@@ -159,7 +159,7 @@ function renderStudentsTable(students) {
             : (s.lastCalledBy || '-');
 
         return `
-            <tr data-index="${index}">
+            <tr data-student-id="${s.id || s._id}">
                 <td>${s.studentId || '-'}</td>
                 <td>${s.name}</td>
                 <td>${s.studentPhone || '-'}</td>
@@ -181,13 +181,13 @@ function renderStudentsTable(students) {
                 <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${lastComment}">${lastComment}</td>
                 <td>
                     <div style="display: flex; gap: 0.5rem;">
-                        <button class="btn-icon edit-btn" data-index="${index}" title="Edit">
+                        <button class="btn-icon edit-btn" data-student-id="${s.id || s._id}" title="Edit">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                             </svg>
                         </button>
-                        <button class="btn-icon delete-btn" data-index="${index}" title="Remove" style="color: var(--accent-red);">
+                        <button class="btn-icon delete-btn" data-student-id="${s.id || s._id}" title="Remove" style="color: var(--accent-red);">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="3 6 5 6 21 6"></polyline>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -207,13 +207,19 @@ function renderStudentsTable(students) {
         `;
     }).join('');
 
-    // Attach listeners
+    // Attach listeners - use student ID instead of index
     document.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', () => openEditModal(parseInt(btn.dataset.index)));
+        btn.addEventListener('click', () => {
+            const studentId = btn.dataset.studentId;
+            openEditModalById(studentId);
+        });
     });
 
     document.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', () => deleteStudent(parseInt(btn.dataset.index)));
+        btn.addEventListener('click', () => {
+            const studentId = btn.dataset.studentId;
+            deleteStudentById(studentId);
+        });
     });
 }
 
@@ -601,8 +607,23 @@ function hideRoundTwoColumns() {
 const studentModal = document.getElementById('student-modal');
 const studentForm = document.getElementById('student-form');
 
+// Find student by ID in currentStudents array
+function findStudentById(studentId) {
+    return currentStudents.find(s => (s.id && s.id.toString() === studentId.toString()) || (s._id && s._id.toString() === studentId.toString()));
+}
+
+// Find student index by ID in currentStudents array
+function findStudentIndexById(studentId) {
+    return currentStudents.findIndex(s => (s.id && s.id.toString() === studentId.toString()) || (s._id && s._id.toString() === studentId.toString()));
+}
+
 function openEditModal(index) {
     const student = currentStudents[index];
+    if (!student) {
+        console.error('Student not found at index:', index);
+        showAlert('Student not found', 'error');
+        return;
+    }
     document.getElementById('student-index').value = index;
     document.getElementById('student-name').value = student.name;
     document.getElementById('student-phone').value = student.studentPhone || '';
@@ -610,10 +631,24 @@ function openEditModal(index) {
     document.getElementById('student-id-edit').value = student.studentId || '';
     document.getElementById('center-edit').value = student.center || '';
     document.getElementById('exam-mark-edit').value = student.examMark !== undefined && student.examMark !== null && student.examMark !== '' ? student.examMark : '';
+    document.getElementById('attendance-status-edit').value = student.attendanceStatus || '';
+    document.getElementById('homework-status-edit').value = student.homeworkStatus || '';
     document.getElementById('student-status').value = student.filterStatus || '';
     document.getElementById('modal-title').textContent = index === -1 ? 'Add Student' : 'Edit Student';
 
     studentModal.classList.add('active');
+}
+
+// Open edit modal by student ID
+function openEditModalById(studentId) {
+    const student = findStudentById(studentId);
+    if (!student) {
+        console.error('Student not found with ID:', studentId);
+        showAlert('Student not found', 'error');
+        return;
+    }
+    const index = findStudentIndexById(studentId);
+    openEditModal(index);
 }
 
 function closeEditModal() {
@@ -631,6 +666,8 @@ studentForm.addEventListener('submit', async (e) => {
     const newStudentId = document.getElementById('student-id-edit').value;
     const newCenter = document.getElementById('center-edit').value;
     const newExamMark = document.getElementById('exam-mark-edit').value;
+    const newAttendanceStatus = document.getElementById('attendance-status-edit').value;
+    const newHomeworkStatus = document.getElementById('homework-status-edit').value;
     const newStatus = document.getElementById('student-status').value;
 
     if (index > -1) {
@@ -651,6 +688,8 @@ studentForm.addEventListener('submit', async (e) => {
                     studentId: newStudentId,
                     center: newCenter,
                     examMark: newExamMark,
+                    attendanceStatus: newAttendanceStatus,
+                    homeworkStatus: newHomeworkStatus,
                     filterStatus: newStatus
                 });
                 showAlert('Student updated');
@@ -668,36 +707,69 @@ studentForm.addEventListener('submit', async (e) => {
             student.studentId = newStudentId;
             student.center = newCenter;
             student.examMark = newExamMark;
+            student.attendanceStatus = newAttendanceStatus;
+            student.homeworkStatus = newHomeworkStatus;
             student.filterStatus = newStatus;
             await saveStudentsList(currentStudents);
             closeEditModal();
         }
 
     } else {
-        // Add New
+        // Add New - send only the new student to backend
         const newStudent = {
-            name: newName,
-            studentPhone: newSPhone,
-            parentPhone: newPPhone,
-            studentId: newStudentId,
-            center: newCenter,
-            examMark: newExamMark,
-            filterStatus: newStatus,
+            name: newName.trim(),
+            studentPhone: newSPhone.trim(),
+            parentPhone: newPPhone.trim(),
+            studentId: newStudentId.trim(),
+            center: newCenter.trim(),
+            examMark: newExamMark.trim() || null,
+            attendanceStatus: newAttendanceStatus || '',
+            homeworkStatus: newHomeworkStatus || '',
+            filterStatus: newStatus || '',
             comments: []
         };
-        // We can append to list and save all
-        currentStudents.push(newStudent);
-        await saveStudentsList(currentStudents);
-        closeEditModal();
-        showAlert('Student added');
+
+        // Validate required fields
+        if (!newStudent.name) {
+            showAlert('Student name is required', 'error');
+            return;
+        }
+
+        try {
+            // Send only the new student to the backend
+            const response = await window.api.makeRequest('POST', `/activities/call-sessions/${currentSessionId}/students`, {
+                students: [newStudent] // Send as array with single student
+            });
+
+            if (response.success) {
+                showAlert('Student added successfully');
+                await loadStudents(); // Reload to get the new student with ID
+                closeEditModal();
+            } else {
+                throw new Error(response.message || 'Failed to add student');
+            }
+        } catch (error) {
+            console.error('Error adding student:', error);
+            showAlert('Failed to add student: ' + (error.message || 'Unknown error'), 'error');
+        }
     }
 });
 
-// Delete Student
-async function deleteStudent(index) {
-    if (!confirm('Remove this student from the session?')) return;
+// Delete Student by ID
+async function deleteStudentById(studentId) {
+    const student = findStudentById(studentId);
+    if (!student) {
+        console.error('Student not found with ID:', studentId);
+        showAlert('Student not found', 'error');
+        return;
+    }
+    await deleteStudent(student);
+}
 
-    const student = currentStudents[index];
+// Delete Student (internal function)
+async function deleteStudent(student) {
+    if (!confirm(`Remove "${student.name}" from the session?`)) return;
+
     console.log('Student to delete:', student);
     console.log('Student ID fields:', { _id: student._id, id: student.id });
 
@@ -993,6 +1065,16 @@ function setupEventListeners() {
     document.getElementById('add-student-btn').addEventListener('click', () => {
         document.getElementById('student-index').value = -1;
         document.getElementById('student-form').reset();
+        // Explicitly clear all fields to ensure clean state
+        document.getElementById('student-name').value = '';
+        document.getElementById('student-phone').value = '';
+        document.getElementById('parent-phone').value = '';
+        document.getElementById('student-id-edit').value = '';
+        document.getElementById('center-edit').value = '';
+        document.getElementById('exam-mark-edit').value = '';
+        document.getElementById('attendance-status-edit').value = '';
+        document.getElementById('homework-status-edit').value = '';
+        document.getElementById('student-status').value = '';
         document.getElementById('modal-title').textContent = 'Add Student';
         studentModal.classList.add('active');
     });
