@@ -1168,63 +1168,108 @@ const assignNextStudent = async (req, res) => {
 
         // PRIORITY 3: Not Done Homework (matches monitor priority 2)
         // Monitor checks: (hw.includes('not done') || hw === 'no')
+        // Use atomic findOneAndUpdate to prevent race conditions
         console.log(`[Student Assignment] User ${userId} looking for students who haven't done homework`);
-        // Get all available students and filter to match monitor logic exactly
-        let availableStudents = await CallSessionStudent.find(baseQuery).sort({ createdAt: 1 }).lean();
-        
-        for (const student of availableStudents) {
-            const hw = (student.homework_status || '').toLowerCase().trim();
-            // Match monitor logic exactly: hw.includes('not done') || hw === 'no'
-            // Note: "not completed" contains "not complete" not "not done", so it won't match here
-            if ((hw.includes('not done') || hw === 'no') && !hw.includes('not complete')) {
-                nextStudent = await CallSessionStudent.findOneAndUpdate(
-                    { _id: student._id, ...baseQuery },
-                    { $set: { assigned_to: userId, assigned_at: new Date() } },
-                    { new: true }
-                );
-                if (nextStudent) {
-                    console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-                    return await sendResponse(nextStudent);
+        // Try to find and assign atomically - this prevents two assistants from getting the same student
+        // We use a broad regex and then verify in JavaScript to ensure exact match
+        nextStudent = await CallSessionStudent.findOneAndUpdate(
+            {
+                ...baseQuery,
+                homework_status: { 
+                    $exists: true, 
+                    $ne: null, 
+                    $ne: '',
+                    $regex: /(not done|^no$)/i
                 }
+            },
+            {
+                $set: {
+                    assigned_to: userId,
+                    assigned_at: new Date()
+                }
+            },
+            { new: true, sort: { createdAt: 1 } }
+        );
+        if (nextStudent) {
+            // Verify the homework status matches exactly (regex might match edge cases)
+            const hw = (nextStudent.homework_status || '').toLowerCase().trim();
+            if ((hw.includes('not done') || hw === 'no') && !hw.includes('not complete')) {
+                console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+                return await sendResponse(nextStudent);
             }
+            // If it doesn't match, unassign and continue (shouldn't happen, but safety check)
+            nextStudent.assigned_to = null;
+            nextStudent.assigned_at = null;
+            await nextStudent.save();
+            nextStudent = null;
         }
 
         // PRIORITY 4: Not Evaluated (matches monitor priority 3)
         // Monitor checks: hw.includes('not evaluated') || hw.includes('pending')
         console.log(`[Student Assignment] User ${userId} looking for students who haven't been evaluated`);
-        availableStudents = await CallSessionStudent.find(baseQuery).sort({ createdAt: 1 }).lean();
-        for (const student of availableStudents) {
-            const hw = (student.homework_status || '').toLowerCase().trim();
-            if (hw.includes('not evaluated') || hw.includes('pending')) {
-                nextStudent = await CallSessionStudent.findOneAndUpdate(
-                    { _id: student._id, ...baseQuery },
-                    { $set: { assigned_to: userId, assigned_at: new Date() } },
-                    { new: true }
-                );
-                if (nextStudent) {
-                    console.log(`[Student Assignment] Assigned not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-                    return await sendResponse(nextStudent);
+        nextStudent = await CallSessionStudent.findOneAndUpdate(
+            {
+                ...baseQuery,
+                homework_status: {
+                    $exists: true,
+                    $ne: null,
+                    $ne: '',
+                    $regex: /(not evaluated|pending)/i
                 }
+            },
+            {
+                $set: {
+                    assigned_to: userId,
+                    assigned_at: new Date()
+                }
+            },
+            { new: true, sort: { createdAt: 1 } }
+        );
+        if (nextStudent) {
+            const hw = (nextStudent.homework_status || '').toLowerCase().trim();
+            if (hw.includes('not evaluated') || hw.includes('pending')) {
+                console.log(`[Student Assignment] Assigned not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+                return await sendResponse(nextStudent);
             }
+            // If it doesn't match, unassign and continue
+            nextStudent.assigned_to = null;
+            nextStudent.assigned_at = null;
+            await nextStudent.save();
+            nextStudent = null;
         }
 
         // PRIORITY 5: Not Complete / Incomplete (matches monitor priority 4)
         // Monitor checks: hw.includes('not complete') || hw.includes('incomplete')
         console.log(`[Student Assignment] User ${userId} looking for students with incomplete homework`);
-        availableStudents = await CallSessionStudent.find(baseQuery).sort({ createdAt: 1 }).lean();
-        for (const student of availableStudents) {
-            const hw = (student.homework_status || '').toLowerCase().trim();
-            if (hw.includes('not complete') || hw.includes('incomplete')) {
-                nextStudent = await CallSessionStudent.findOneAndUpdate(
-                    { _id: student._id, ...baseQuery },
-                    { $set: { assigned_to: userId, assigned_at: new Date() } },
-                    { new: true }
-                );
-                if (nextStudent) {
-                    console.log(`[Student Assignment] Assigned incomplete homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-                    return await sendResponse(nextStudent);
+        nextStudent = await CallSessionStudent.findOneAndUpdate(
+            {
+                ...baseQuery,
+                homework_status: {
+                    $exists: true,
+                    $ne: null,
+                    $ne: '',
+                    $regex: /(not complete|incomplete)/i
                 }
+            },
+            {
+                $set: {
+                    assigned_to: userId,
+                    assigned_at: new Date()
+                }
+            },
+            { new: true, sort: { createdAt: 1 } }
+        );
+        if (nextStudent) {
+            const hw = (nextStudent.homework_status || '').toLowerCase().trim();
+            if (hw.includes('not complete') || hw.includes('incomplete')) {
+                console.log(`[Student Assignment] Assigned incomplete homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+                return await sendResponse(nextStudent);
             }
+            // If it doesn't match, unassign and continue
+            nextStudent.assigned_to = null;
+            nextStudent.assigned_at = null;
+            await nextStudent.save();
+            nextStudent = null;
         }
 
         // PRIORITY 6: Empty Homework Status

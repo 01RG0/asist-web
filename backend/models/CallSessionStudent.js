@@ -91,4 +91,10 @@ const callSessionStudentSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Compound indexes for efficient student assignment queries
+// This index helps prevent race conditions by making findOneAndUpdate operations faster
+callSessionStudentSchema.index({ call_session_id: 1, filter_status: 1, assigned_to: 1, assigned_at: 1 });
+callSessionStudentSchema.index({ call_session_id: 1, filter_status: 1, assigned_to: 1, createdAt: 1 });
+callSessionStudentSchema.index({ call_session_id: 1, assigned_to: 1, filter_status: 1 });
+
 module.exports = mongoose.model('CallSessionStudent', callSessionStudentSchema);
