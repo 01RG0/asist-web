@@ -119,36 +119,39 @@
 
                     <!-- Optional Info Section (only shows if data exists) -->
                     <div id="optional-info-section" style="display: none;">
-                        <!-- Student ID -->
-                        <div class="form-group" id="student-id-group" style="display: none;">
-                            <label for="student-id">Student ID</label>
-                            <input type="text" id="student-id" class="form-input" readonly>
+                        <!-- Grid Layout for Student ID, Center, Attendance Status, Homework Status -->
+                        <div class="info-grid">
+                            <!-- Student ID -->
+                            <div class="form-group" id="student-id-group" style="display: none;">
+                                <label for="student-id">Student ID</label>
+                                <input type="text" id="student-id" class="form-input" readonly>
+                            </div>
+
+                            <!-- Center -->
+                            <div class="form-group" id="center-group" style="display: none;">
+                                <label for="center">Center</label>
+                                <input type="text" id="center" class="form-input" readonly>
+                            </div>
+
+                            <!-- Attendance Status -->
+                            <div class="form-group" id="attendance-status-group" style="display: none;">
+                                <label for="attendance-status">Attendance Status</label>
+                                <input type="text" id="attendance-status" class="form-input" readonly
+                                    style="font-weight: 600;">
+                            </div>
+
+                            <!-- Homework Status -->
+                            <div class="form-group" id="homework-status-group" style="display: none;">
+                                <label for="homework-status">Homework Status</label>
+                                <input type="text" id="homework-status" class="form-input" readonly
+                                    style="font-weight: 600;">
+                            </div>
                         </div>
 
-                        <!-- Center -->
-                        <div class="form-group" id="center-group" style="display: none;">
-                            <label for="center">Center</label>
-                            <input type="text" id="center" class="form-input" readonly>
-                        </div>
-
-                        <!-- Exam Mark -->
+                        <!-- Exam Mark (separate, full width) -->
                         <div class="form-group" id="exam-mark-group" style="display: none;">
                             <label for="exam-mark">Exam Mark</label>
                             <input type="text" id="exam-mark" class="form-input" readonly>
-                        </div>
-
-                        <!-- Attendance Status -->
-                        <div class="form-group" id="attendance-status-group" style="display: none;">
-                            <label for="attendance-status">Attendance Status</label>
-                            <input type="text" id="attendance-status" class="form-input" readonly
-                                style="font-weight: 600;">
-                        </div>
-
-                        <!-- Homework Status -->
-                        <div class="form-group" id="homework-status-group" style="display: none;">
-                            <label for="homework-status">Homework Status</label>
-                            <input type="text" id="homework-status" class="form-input" readonly
-                                style="font-weight: 600;">
                         </div>
                     </div>
 

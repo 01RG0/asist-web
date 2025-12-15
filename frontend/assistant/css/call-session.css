@@ -74,6 +74,14 @@
     margin-bottom: var(--spacing-md);
 }
 
+/* Info Grid Layout - 2 columns for Student ID, Center, Attendance Status, Homework Status */
+.info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
 .form-group label {
     display: block;
     margin-bottom: 0.5rem;
@@ -406,6 +414,10 @@
         grid-template-columns: 1fr;
     }
 
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+
     .student-navigation {
         flex-direction: column;
     }
@@ -470,6 +482,11 @@
     }
 
     .form-group {
+        margin-bottom: 0.5rem;
+    }
+
+    .info-grid {
+        gap: 0.5rem;
         margin-bottom: 0.5rem;
     }
 
