@@ -2565,34 +2565,29 @@ const undoImportStudents = async (req, res) => {
 };
 
 /**
- * Start Round Two - Assign no-answer students for second attempt
+ * Start Round Two - Create a new separate call session with no-answer students
  * POST /api/activities/call-sessions/:id/start-round-two
  */
 const startRoundTwo = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const session = await CallSession.findById(id);
-        if (!session) {
+        const originalSession = await CallSession.findById(id);
+        if (!originalSession) {
             return res.status(404).json({
                 success: false,
                 message: 'Call session not found'
             });
         }
 
-        if (session.status !== 'active') {
-            return res.status(400).json({
-                success: false,
-                message: 'Round two can only be started for active sessions'
-            });
-        }
+        // Allow round two to be started for any session status
+        // Removed the check that required session to be 'active'
 
-        // Find all students with 'no-answer' status who haven't been assigned for round two
+        // Find all students with 'no-answer' status from the original session
         const noAnswerStudents = await CallSessionStudent.find({
             call_session_id: id,
-            filter_status: 'no-answer',
-            round_two_assigned_to: null
-        });
+            filter_status: 'no-answer'
+        }).lean(); // Use lean() for better performance
 
         if (noAnswerStudents.length === 0) {
             return res.status(404).json({
@@ -2601,17 +2596,58 @@ const startRoundTwo = async (req, res) => {
             });
         }
 
+        // Create a new call session for round two
+        const roundTwoSessionName = `${originalSession.name} - Round Two`;
+        const newSession = new CallSession({
+            name: roundTwoSessionName,
+            date: originalSession.date, // Use same date as original
+            start_time: originalSession.start_time, // Use same start time
+            status: 'pending' // Start as pending, admin/assistants can activate it
+        });
+
+        await newSession.save();
+
+        // Copy students to the new session with reset filter_status
+        const studentsToImport = noAnswerStudents.map(student => ({
+            name: student.name,
+            student_phone: student.student_phone || '',
+            parent_phone: student.parent_phone || '',
+            student_id: student.student_id || '',
+            center: student.center || '',
+            exam_mark: student.exam_mark || null,
+            attendance_status: student.attendance_status || '',
+            homework_status: student.homework_status || '',
+            filter_status: '', // Reset filter status for fresh start
+            comments: student.comments || [], // Keep comments history
+            how_many: student.how_many || false,
+            total_test: student.total_test || false,
+            call_session_id: newSession._id,
+            // Do not copy assigned_to, round_two_assigned_to - start fresh
+            assigned_to: null,
+            assigned_at: null,
+            round_two_assigned_to: null,
+            round_two_assigned_at: null
+        }));
+
+        // Bulk insert students into the new session
+        if (studentsToImport.length > 0) {
+            await CallSessionStudent.insertMany(studentsToImport);
+        }
+
         await logAuditAction(req.user.id, 'START_ROUND_TWO', {
-            session_id: id,
+            original_session_id: id,
+            new_session_id: newSession._id.toString(),
             students_count: noAnswerStudents.length
         });
 
         res.status(200).json({
             success: true,
-            message: `Round two started successfully. ${noAnswerStudents.length} students available for reassignment.`,
+            message: `Round two session created successfully. ${noAnswerStudents.length} students imported from original session.`,
             data: {
-                round_two_students_count: noAnswerStudents.length,
-                round_two_enabled: true
+                new_session_id: newSession._id,
+                new_session_name: roundTwoSessionName,
+                students_count: noAnswerStudents.length,
+                original_session_id: id
             }
         });
 
@@ -2624,7 +2660,8 @@ const startRoundTwo = async (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: 'Error starting round two'
+            message: 'Error starting round two',
+            error: error.message
         });
     }
 };

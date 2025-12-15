@@ -101,14 +101,13 @@ async function loadSessionDetails() {
             if (status === 'completed') statusEl.style.color = 'var(--accent-green)';
             else statusEl.style.color = 'var(--accent-blue)';
 
-            // Show/hide round two button based on session status
+            // Round two button is always visible and clickable
             const roundTwoBtn = document.getElementById('round-two-btn');
-            if (status === 'active') {
-                roundTwoBtn.style.display = 'inline-flex';
-            } else {
-                roundTwoBtn.style.display = 'none';
-                roundTwoEnabled = false;
-                hideRoundTwoColumns();
+            if (roundTwoBtn) {
+                // Always enable the button
+                roundTwoBtn.disabled = false;
+                roundTwoBtn.style.opacity = '1';
+                roundTwoBtn.style.cursor = 'pointer';
             }
         }
     } catch (error) {
@@ -534,8 +533,16 @@ function showUndoButton(undoToken, expiresInMs, backupId) {
 }
 
 // Round Two Functions
-async function startRoundTwo() {
-    if (!confirm('Are you sure you want to start Round Two? This will enable reassignment of "no-answer" students to assistants for a second attempt.')) {
+async function startRoundTwo(event) {
+    // Prevent default and stop propagation
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    console.log('Round two button clicked!');
+    
+    if (!confirm('Are you sure you want to start Round Two? This will create a new separate call session with all "no-answer" students from this session.')) {
         return;
     }
 
@@ -543,16 +550,26 @@ async function startRoundTwo() {
         const response = await window.api.makeRequest('POST', `/activities/call-sessions/${currentSessionId}/start-round-two`);
 
         if (response.success) {
-            roundTwoEnabled = true;
-            showRoundTwoColumns();
-            showAlert(`Round Two started! ${response.data.round_two_students_count} students available for reassignment.`, 'success');
-            await loadStudents(); // Reload to show round two data
+            const newSessionId = response.data.new_session_id;
+            const newSessionName = response.data.new_session_name;
+            const studentsCount = response.data.students_count;
+            
+            // Show success message with option to navigate to new session
+            const message = `Round Two session created successfully!\n\n${studentsCount} students imported to new session: "${newSessionName}"\n\nWould you like to open the new session?`;
+            
+            if (confirm(message)) {
+                // Navigate to the new session's monitor page
+                window.location.href = `/admin/monitor-session.html?session=${newSessionId}`;
+            } else {
+                showAlert(`Round Two session created! ${studentsCount} students imported. Session ID: ${newSessionId}`, 'success');
+                await loadStudents(); // Reload current session data
+            }
         } else {
             showAlert('Failed to start round two', 'error');
         }
     } catch (error) {
         console.error('Error starting round two:', error);
-        showAlert('Error starting round two', 'error');
+        showAlert('Error starting round two: ' + (error.message || 'Unknown error'), 'error');
     }
 }
 
@@ -951,7 +968,16 @@ function setupEventListeners() {
 
     document.getElementById('export-btn').addEventListener('click', exportStudents);
 
-    document.getElementById('round-two-btn').addEventListener('click', startRoundTwo);
+    const roundTwoBtn = document.getElementById('round-two-btn');
+    if (roundTwoBtn) {
+        roundTwoBtn.addEventListener('click', startRoundTwo);
+        // Ensure button is always enabled and clickable
+        roundTwoBtn.disabled = false;
+        roundTwoBtn.style.pointerEvents = 'auto';
+        roundTwoBtn.style.cursor = 'pointer';
+    } else {
+        console.error('Round two button not found when setting up event listener');
+    }
 
     // Filter Listeners
     const filterInputs = [

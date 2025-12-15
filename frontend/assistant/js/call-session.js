@@ -46,9 +46,7 @@ const commentsListEl = document.getElementById('comments-list');
 const prevStudentBtn = document.getElementById('prev-student');
 const nextStudentBtn = document.getElementById('next-student');
 
-const roundOneBtn = document.getElementById('round-one-btn');
-const roundTwoBtn = document.getElementById('round-two-btn');
-const recallBtn = document.getElementById('recall-student-btn');
+// Round two mode buttons removed - round two is now a separate session
 
 const filterButtons = document.querySelectorAll('.filter-btn');
 
@@ -59,7 +57,7 @@ let currentStudentIndex = 0;
 let historyMode = false;
 let historyOffset = 0; // 0 = last processed, 1 = one before that, etc.
 let isOnline = navigator.onLine;
-let isRoundTwoMode = false; // Track if we're in round two mode
+// Round two mode removed - round two is now a separate session
 const STORAGE_KEY = `call_session_${sessionId}`;
 
 // Connection Status Management
@@ -89,134 +87,8 @@ window.addEventListener('offline', () => {
     updateConnectionStatus();
 });
 
-// Round Mode Functions
-function setRoundMode(isRoundTwo) {
-    isRoundTwoMode = isRoundTwo;
-
-    // Update button styles
-    if (isRoundTwo) {
-        roundOneBtn.classList.remove('active');
-        roundOneBtn.style.background = 'white';
-        roundOneBtn.style.color = 'var(--text-secondary)';
-
-        roundTwoBtn.classList.add('active');
-        roundTwoBtn.style.background = 'var(--primary)';
-        roundTwoBtn.style.color = 'white';
-
-        // Show recall button, hide next student button
-        recallBtn.style.display = 'inline-block';
-        nextStudentBtn.style.display = 'none';
-    } else {
-        roundTwoBtn.classList.remove('active');
-        roundTwoBtn.style.background = 'white';
-        roundTwoBtn.style.color = 'var(--text-secondary)';
-
-        roundOneBtn.classList.add('active');
-        roundOneBtn.style.background = 'var(--primary)';
-        roundOneBtn.style.color = 'white';
-
-        // Show next student button, hide recall button
-        nextStudentBtn.style.display = 'inline-block';
-        recallBtn.style.display = 'none';
-    }
-
-    // Clear current student when switching modes
-    students = [];
-    currentStudentIndex = 0;
-    showNoStudentsMessage();
-    saveSessionState();
-}
-
-// Recall No-Answer Student Function
-async function recallNoAnswerStudent() {
-    if (!sessionId) {
-        showToast('No active session', 'error');
-        return;
-    }
-
-    // Disable button during loading
-    recallBtn.disabled = true;
-    recallBtn.textContent = 'Recalling...';
-
-    try {
-        const response = await window.api.makeRequest('POST', `/activities/call-sessions/${sessionId}/assign-round-two`);
-
-        if (response.success) {
-            if (response.data) {
-                // Found a student
-                const student = response.data;
-
-                // We keep students array just to play nice with existing "currentStudentIndex" logic if needed,
-                // but really we only have ONE current student now.
-                students = [student]; // Just one
-                currentStudentIndex = 0;
-
-                displayStudent(student);
-                saveSessionState(); // Save state after loading student
-
-                if (response.message) showToast(response.message); // "New student assigned" or "Continued with..."
-
-                // Update stats
-                if (response.stats) {
-                    document.getElementById('remaining-count').textContent = response.stats.remaining;
-                    document.getElementById('completed-count').textContent = response.stats.completed;
-                }
-            } else {
-                // No more students
-                showNoStudentsMessage();
-                // Update stats even if no student found (should vary likely optionally be 0)
-                if (response.stats) {
-                    document.getElementById('remaining-count').textContent = 0; // Or from response
-                    document.getElementById('completed-count').textContent = response.stats.completed;
-                }
-                showToast(response.message || 'All no-answer students completed!', 'success');
-            }
-        } else {
-            showToast(response.message || 'Failed to recall student', 'error');
-        }
-    } catch (error) {
-        console.error('Error recalling no-answer student:', error);
-        showToast('Failed to recall student', 'error');
-    } finally {
-        // Re-enable button
-        recallBtn.disabled = false;
-        recallBtn.textContent = 'Recall No-Answer Student';
-    }
-}
-
-async function checkRoundTwoAvailability() {
-    try {
-        // Check if round two is enabled for this session
-        const response = await window.api.makeRequest('GET', `/activities/call-sessions/${sessionId}`);
-        if (response.success && response.data.status === 'active') {
-            // Only show round two button if admin has actually started round two
-            // Check if there are any no-answer students assigned for round two
-            try {
-                const studentsResponse = await window.api.makeRequest('GET', `/activities/call-sessions/${sessionId}/students`);
-                if (studentsResponse.success && studentsResponse.data) {
-                    // Check if any students have round two assignments (meaning round two was started)
-                    const hasRoundTwoStudents = studentsResponse.data.some(student =>
-                        student.filterStatus === 'no-answer' && student.round_two_assigned_to
-                    );
-
-                    if (hasRoundTwoStudents) {
-                        roundTwoBtn.style.display = 'inline-block';
-                    } else {
-                        roundTwoBtn.style.display = 'none';
-                    }
-                }
-            } catch (studentsError) {
-                console.error('Error checking students for round two:', studentsError);
-                roundTwoBtn.style.display = 'none';
-            }
-        } else {
-            roundTwoBtn.style.display = 'none';
-        }
-    } catch (error) {
-        console.error('Error checking round two availability:', error);
-        roundTwoBtn.style.display = 'none';
-    }
-}
+// Round two mode removed - round two is now a completely separate session
+// Assistants will see round two sessions in their sessions list and can select them normally
 
 // State Persistence Functions
 function saveSessionState() {
@@ -276,9 +148,6 @@ async function init() {
 
     // Always load session data to get latest info
     await loadSessionData();
-
-    // Check if round two is available
-    await checkRoundTwoAvailability();
 
     if (restored && students.length > 0 && students[0]) {
         // Check if the restored student already has a filter status (completed)
@@ -494,7 +363,7 @@ function displayStudent(student) {
 
     // We don't know total count easily here without another API call, so maybe just show "Current"
     currentStudentEl.textContent = 'Active';
-    totalStudentsEl.textContent = isRoundTwoMode ? 'Round 2' : 'Session';
+    totalStudentsEl.textContent = 'Session';
 
     // Display optional fields if they exist
     const studentIdEl = document.getElementById('student-id');
@@ -634,19 +503,7 @@ function setupEventListeners() {
         prevStudentBtn.addEventListener('click', loadPreviousStudent);
     }
 
-    // Mode toggle buttons
-    roundOneBtn.addEventListener('click', () => {
-        setRoundMode(false);
-    });
-
-    roundTwoBtn.addEventListener('click', () => {
-        setRoundMode(true);
-    });
-
-    // Recall button for round two
-    if (recallBtn) {
-        recallBtn.addEventListener('click', recallNoAnswerStudent);
-    }
+    // Round two mode removed - it's now a separate session
 
     // Phone actions
     callStudentBtn.addEventListener('click', () => {
