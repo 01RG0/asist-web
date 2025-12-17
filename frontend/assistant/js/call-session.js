@@ -59,6 +59,69 @@ let historyOffset = 0; // 0 = last processed, 1 = one before that, etc.
 let isOnline = navigator.onLine;
 // Round two mode removed - round two is now a separate session
 const STORAGE_KEY = `call_session_${sessionId}`;
+const SEEN_STUDENTS_KEY = `call_session_${sessionId}_seen_students`;
+
+// ============================
+// No-Repeat Student Handler (Safe)
+// ============================
+function safeGetStudentKey(student) {
+    try {
+        if (!student) return null;
+        // Prefer Mongo _id (most reliable), fallback to CSV studentId
+        const key = student.id || student._id || student.studentId || student.student_id;
+        if (!key) return null;
+        return String(key).trim();
+    } catch (e) {
+        return null;
+    }
+}
+
+function safeLoadSeenStudentsSet() {
+    try {
+        const raw = localStorage.getItem(SEEN_STUDENTS_KEY);
+        if (!raw) return new Set();
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return new Set();
+        return new Set(parsed.map(x => String(x).trim()).filter(Boolean));
+    } catch (e) {
+        return new Set();
+    }
+}
+
+function safeSaveSeenStudentsSet(seenSet) {
+    try {
+        const arr = Array.from(seenSet || []);
+        // Keep the list bounded to avoid unbounded localStorage growth
+        const MAX = 2000;
+        const trimmed = arr.length > MAX ? arr.slice(arr.length - MAX) : arr;
+        localStorage.setItem(SEEN_STUDENTS_KEY, JSON.stringify(trimmed));
+    } catch (e) {
+        // ignore (safe)
+    }
+}
+
+function safeMarkStudentAsSeen(student) {
+    try {
+        const key = safeGetStudentKey(student);
+        if (!key) return;
+        const seen = safeLoadSeenStudentsSet();
+        seen.add(key);
+        safeSaveSeenStudentsSet(seen);
+    } catch (e) {
+        // ignore (safe)
+    }
+}
+
+function safeIsStudentSeen(student) {
+    try {
+        const key = safeGetStudentKey(student);
+        if (!key) return false;
+        const seen = safeLoadSeenStudentsSet();
+        return seen.has(key);
+    } catch (e) {
+        return false;
+    }
+}
 
 // Connection Status Management
 function updateConnectionStatus() {
@@ -119,6 +182,8 @@ function restoreSessionState() {
                 if (state.currentStudent) {
                     students = [state.currentStudent];
                     displayStudent(state.currentStudent);
+                    // Mark restored student as seen to prevent repeats after refresh
+                    safeMarkStudentAsSeen(state.currentStudent);
                 }
                 historyMode = state.historyMode;
                 historyOffset = state.historyOffset;
@@ -282,12 +347,33 @@ async function loadNextStudent() {
         // Only assign regular students in round one mode
         // Round two requires explicit recall button click
         const endpoint = `/activities/call-sessions/${sessionId}/assign`;
-        const response = await window.api.makeRequest('POST', endpoint);
+
+        // Try a few times to avoid duplicates safely (prevents infinite loops)
+        const MAX_ASSIGN_TRIES = 5;
+        let response = null;
+        let assignedStudent = null;
+
+        for (let attempt = 1; attempt <= MAX_ASSIGN_TRIES; attempt++) {
+            response = await window.api.makeRequest('POST', endpoint);
+            if (!response || !response.success) break;
+
+            assignedStudent = response.data || null;
+            if (!assignedStudent) break; // no more students
+
+            // If backend returns the same student again, fetch another one
+            const isDuplicate = safeIsStudentSeen(assignedStudent);
+            if (!isDuplicate) break;
+
+            console.warn(`[No-Repeat] Duplicate student returned, retrying (${attempt}/${MAX_ASSIGN_TRIES})`, assignedStudent);
+
+            // Small delay to avoid hammering the server in quick loops
+            await new Promise(r => setTimeout(r, 150));
+        }
 
         if (response.success) {
             if (response.data) {
                 // Found a student
-                const student = response.data;
+                const student = assignedStudent || response.data;
 
                 // We keep students array just to play nice with existing "currentStudentIndex" logic if needed,
                 // but really we only have ONE current student now.
@@ -295,6 +381,7 @@ async function loadNextStudent() {
                 currentStudentIndex = 0;
 
                 displayStudent(student);
+                safeMarkStudentAsSeen(student);
                 saveSessionState(); // Save state after loading student
 
                 if (response.message) showToast(response.message); // "New student assigned" or "Continued with..."
