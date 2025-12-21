@@ -1969,7 +1969,11 @@ const getActivityLogs = async (req, res) => {
             if (duration_max) query.duration_minutes.$lte = parseInt(duration_max);
         }
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
+        // If students count filtering is used, we need to fetch all records first
+        // because students count is calculated dynamically and can't be filtered in DB query
+        const hasStudentsFilter = students_min || students_max;
+        const fetchLimit = hasStudentsFilter ? 10000 : parseInt(limit); // Fetch more when filtering by students
+        const skip = hasStudentsFilter ? 0 : (parseInt(page) - 1) * parseInt(limit);
 
         const [logs, total] = await Promise.all([
             ActivityLog.find(query)
@@ -1979,7 +1983,7 @@ const getActivityLogs = async (req, res) => {
                 .populate('deleted_by', 'name')
                 .sort({ start_time: -1 })
                 .skip(skip)
-                .limit(parseInt(limit))
+                .limit(fetchLimit)
                 .lean(),
             ActivityLog.countDocuments(query)
         ]);
@@ -1999,8 +2003,13 @@ const getActivityLogs = async (req, res) => {
                     sessionId: log.call_session_id._id
                 }));
 
+            // Remove duplicates
+            const uniquePairs = Array.from(
+                new Map(userSessionPairs.map(p => [`${p.userId}_${p.sessionId}`, p])).values()
+            );
+
             // Count students for each user-session pair
-            for (const pair of userSessionPairs) {
+            for (const pair of uniquePairs) {
                 const count = await CallSessionStudent.countDocuments({
                     call_session_id: pair.sessionId,
                     assigned_to: pair.userId
@@ -2043,7 +2052,7 @@ const getActivityLogs = async (req, res) => {
         });
 
         // Apply students count filters after formatting
-        if (students_min || students_max) {
+        if (hasStudentsFilter) {
             formattedLogs = formattedLogs.filter(log => {
                 const count = log.students_handled_count;
                 const minCheck = !students_min || count >= parseInt(students_min);
@@ -2052,11 +2061,25 @@ const getActivityLogs = async (req, res) => {
             });
         }
 
-        // Recalculate pagination based on filtered results
-        const filteredTotal = formattedLogs.length;
-        const startIndex = (parseInt(page) - 1) * parseInt(limit);
-        const endIndex = startIndex + parseInt(limit);
-        const paginatedLogs = formattedLogs.slice(startIndex, endIndex);
+        // Calculate pagination - if we filtered by students, paginate the filtered results
+        // Otherwise, use the original pagination
+        let paginatedLogs;
+        let paginationTotal;
+        let paginationPages;
+
+        if (hasStudentsFilter) {
+            // Paginate the filtered results
+            paginationTotal = formattedLogs.length;
+            paginationPages = paginationTotal > 0 ? Math.ceil(paginationTotal / parseInt(limit)) : 1;
+            const startIndex = (parseInt(page) - 1) * parseInt(limit);
+            const endIndex = startIndex + parseInt(limit);
+            paginatedLogs = formattedLogs.slice(startIndex, endIndex);
+        } else {
+            // Use original pagination (already paginated from DB)
+            paginatedLogs = formattedLogs;
+            paginationTotal = total;
+            paginationPages = total > 0 ? Math.ceil(total / parseInt(limit)) : 1;
+        }
 
         res.json({
             success: true,
@@ -2064,8 +2087,8 @@ const getActivityLogs = async (req, res) => {
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
-                total: filteredTotal,
-                pages: Math.ceil(filteredTotal / parseInt(limit))
+                total: paginationTotal,
+                pages: paginationPages
             }
         });
     } catch (error) {

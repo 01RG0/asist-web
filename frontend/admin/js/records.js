@@ -207,9 +207,12 @@ function updatePagination(pagination) {
     const nextBtn = document.getElementById('next-page-btn');
     const pageInfo = document.getElementById('page-info');
 
-    prevBtn.disabled = pagination.page <= 1;
-    nextBtn.disabled = pagination.page >= pagination.pages;
-    pageInfo.textContent = `Page ${pagination.page} of ${pagination.pages}`;
+    const currentPage = pagination.page || 1;
+    const totalPages = pagination.pages || 1;
+
+    prevBtn.disabled = currentPage <= 1 || totalPages <= 1;
+    nextBtn.disabled = currentPage >= totalPages || totalPages <= 1;
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
 }
 
 // Update records count
