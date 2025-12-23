@@ -3,9 +3,60 @@
 // Hide WhatsApp schedule elements from attendance page
 document.addEventListener('DOMContentLoaded', function() {
     // Hide any WhatsApp schedule related elements that might be loaded
-    const whatsappElements = document.querySelectorAll('[id*="whatsapp"], .whatsapp-schedule, .whatsapp-related');
-    whatsappElements.forEach(element => {
-        element.style.display = 'none';
+    const hideWhatsAppElements = () => {
+        const selectors = [
+            '[id*="whatsapp"]',
+            '[class*="whatsapp"]',
+            '.whatsapp-schedule',
+            '.whatsapp-related',
+            '#whatsapp-tab',
+            '#whatsapp-modal',
+            '#whatsapp-table',
+            '#whatsapp-form',
+            'button[id*="whatsapp"]',
+            'input[id*="whatsapp"]',
+            'select[id*="whatsapp"]'
+        ];
+
+        selectors.forEach(selector => {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(element => {
+                element.style.display = 'none !important';
+                element.remove(); // Completely remove the element
+            });
+        });
+    };
+
+    // Initial hide
+    hideWhatsAppElements();
+
+    // Continuously monitor for new WhatsApp elements (MutationObserver)
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        // Check if the added node or its children contain WhatsApp elements
+                        if (node.matches && (node.matches('[id*="whatsapp"]') || node.matches('[class*="whatsapp"]'))) {
+                            node.style.display = 'none !important';
+                            node.remove();
+                        }
+                        // Also check children
+                        const whatsappChildren = node.querySelectorAll('[id*="whatsapp"], [class*="whatsapp"]');
+                        whatsappChildren.forEach(child => {
+                            child.style.display = 'none !important';
+                            child.remove();
+                        });
+                    }
+                });
+            }
+        });
+    });
+
+    // Start observing
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
     });
 
     // Prevent WhatsApp schedule functionality from loading
@@ -15,6 +66,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof displayWhatsAppSchedules === 'function') {
         displayWhatsAppSchedules = function() { /* Disabled on attendance page */ };
     }
+
+    // Override any potential global WhatsApp functions
+    window.loadWhatsAppSchedules = function() { /* Disabled */ };
+    window.displayWhatsAppSchedules = function() { /* Disabled */ };
 });
 
 // Check authentication
@@ -80,7 +135,17 @@ async function loadAttendance(filters = {}, page = 1) {
         const response = await window.api.makeRequest('GET', `/admin/attendance?${params}`);
 
         if (response.success) {
-            allAttendanceRecords = response.data;
+            // Filter out WhatsApp schedule data from attendance records
+            const cleanAttendanceRecords = (response.data || []).filter(record => {
+                // Skip records that appear to be WhatsApp schedules
+                if (record.type === 'whatsapp' || record.day_of_week || record.start_time || record.end_time) {
+                    return false;
+                }
+                // Only include records that have attendance-specific fields
+                return record && record.assistant_name && record.time_recorded && record.session_id;
+            });
+
+            allAttendanceRecords = cleanAttendanceRecords;
             filteredRecords = [...allAttendanceRecords];
             currentPage = response.pagination.page;
             totalPages = response.pagination.pages;
@@ -101,7 +166,17 @@ async function loadAttendance(filters = {}, page = 1) {
 function displayAttendance(records) {
     const tbody = document.getElementById('attendance-table');
 
-    if (!records || records.length === 0) {
+    // Filter out any WhatsApp schedule related records from attendance data
+    const filteredRecords = records.filter(record => {
+        // Skip records that appear to be WhatsApp schedules
+        if (record.type === 'whatsapp' || record.day_of_week || record.start_time || record.end_time) {
+            return false;
+        }
+        // Only include records that have attendance-specific fields
+        return record && record.assistant_name && record.time_recorded && record.session_id;
+    });
+
+    if (!filteredRecords || filteredRecords.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" class="text-center">No attendance records found.</td>
@@ -110,7 +185,7 @@ function displayAttendance(records) {
         return;
     }
 
-    tbody.innerHTML = records.map(record => {
+    tbody.innerHTML = filteredRecords.map(record => {
         const attendanceDate = new Date(record.time_recorded).toLocaleDateString();
         const attendanceTime = new Date(record.time_recorded).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

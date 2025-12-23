@@ -14,8 +14,18 @@
         #whatsapp-tab,
         #whatsapp-modal,
         [id*="whatsapp"],
-        .whatsapp-related {
+        [class*="whatsapp"],
+        .whatsapp-related,
+        #whatsapp-table,
+        #whatsapp-form,
+        button[id*="whatsapp"],
+        input[id*="whatsapp"],
+        select[id*="whatsapp"],
+        textarea[id*="whatsapp"] {
             display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
         }
     </style>
 </head>

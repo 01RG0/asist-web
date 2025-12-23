@@ -1134,17 +1134,64 @@ const assignNextStudent = async (req, res) => {
             ]
         };
 
+        // Function to check if a student is available for assignment by this assistant
+        // This function can be used to prevent duplicate assignments
+        const isStudentAvailableForAssignment = async (studentId, currentUserId = userId) => {
+            try {
+                const student = await CallSessionStudent.findById(studentId);
+                if (!student) {
+                    console.log(`[Student Check] Student ${studentId} not found`);
+                    return { available: false, reason: 'student_not_found' };
+                }
+
+                // Check if student is already completed
+                if (student.filter_status && student.filter_status !== '') {
+                    console.log(`[Student Check] Student ${studentId} (${student.name}) already completed with status: ${student.filter_status}`);
+                    return { available: false, reason: 'already_completed' };
+                }
+
+                // Check if assigned to another user (not the current user)
+                if (student.assigned_to) {
+                    if (student.assigned_to.toString() === currentUserId.toString()) {
+                        // Assigned to the current user - this is OK
+                        console.log(`[Student Check] Student ${studentId} (${student.name}) already assigned to current user`);
+                        return { available: true, reason: 'assigned_to_current_user' };
+                    }
+
+                    // Check if lock has expired
+                    if (!student.assigned_at || student.assigned_at >= lockThreshold) {
+                        console.log(`[Student Check] Student ${studentId} (${student.name}) assigned to another user ${student.assigned_to} and lock not expired`);
+                        return { available: false, reason: 'assigned_to_another_user' };
+                    } else {
+                        console.log(`[Student Check] Student ${studentId} (${student.name}) lock expired, can be reassigned`);
+                        return { available: true, reason: 'lock_expired' };
+                    }
+                }
+
+                // Student is unassigned
+                console.log(`[Student Check] Student ${studentId} (${student.name}) is unassigned and available`);
+                return { available: true, reason: 'unassigned' };
+
+            } catch (error) {
+                console.error(`[Student Check] Error checking student ${studentId}:`, error);
+                return { available: false, reason: 'error', error: error.message };
+            }
+        };
+
         // Helper to try assigning a student with specific criteria
         const tryAssign = async (criteria) => {
+            const query = { ...baseQuery, ...criteria };
+
+            // Find and assign atomically - the baseQuery already ensures availability
             return await CallSessionStudent.findOneAndUpdate(
-                { ...baseQuery, ...criteria },
+                query,
                 {
                     $set: {
                         assigned_to: userId,
                         assigned_at: new Date()
                     }
                 },
-                { new: true, sort: { createdAt: 1 } } // Sort by creation time for consistent assignment order
+                { new: true, sort: { createdAt: 1 } }
             );
         };
 
@@ -1180,9 +1227,9 @@ const assignNextStudent = async (req, res) => {
         nextStudent = await CallSessionStudent.findOneAndUpdate(
             {
                 ...baseQuery,
-                homework_status: { 
-                    $exists: true, 
-                    $ne: null, 
+                homework_status: {
+                    $exists: true,
+                    $ne: null,
                     $ne: '',
                     $regex: /(not done|^no$)/i
                 }
@@ -3044,7 +3091,57 @@ module.exports = {
     getActivityLogById,
     updateActivityLog,
     deleteActivityLog,
+    // Utility functions
+    checkStudentAssignmentStatus,
+    // Utility functions
+    checkStudentAssignmentStatus,
     // Internal functions
     generateWhatsAppRecordsForDate
+};
+
+/**
+ * Check if a student is available for assignment by an assistant
+ * This function prevents duplicate assignments by checking assignment status
+ * @param {string} studentId - The student ID to check
+ * @param {string} currentUserId - The user requesting the assignment
+ * @param {number} lockTimeoutMinutes - Lock timeout in minutes (default: 30)
+ * @returns {Promise<{available: boolean, reason: string, error?: string}>}
+ */
+const checkStudentAssignmentStatus = async (studentId, currentUserId, lockTimeoutMinutes = 30) => {
+    try {
+        const student = await CallSessionStudent.findById(studentId);
+        if (!student) {
+            return { available: false, reason: 'student_not_found' };
+        }
+
+        // Check if student is already completed
+        if (student.filter_status && student.filter_status !== '') {
+            return { available: false, reason: 'already_completed' };
+        }
+
+        const lockThreshold = new Date(Date.now() - lockTimeoutMinutes * 60000);
+
+        // Check if assigned to another user (not the current user)
+        if (student.assigned_to) {
+            if (student.assigned_to.toString() === currentUserId.toString()) {
+                // Assigned to the current user - this is OK
+                return { available: true, reason: 'assigned_to_current_user' };
+            }
+
+            // Check if lock has expired
+            if (!student.assigned_at || student.assigned_at >= lockThreshold) {
+                return { available: false, reason: 'assigned_to_another_user' };
+            } else {
+                return { available: true, reason: 'lock_expired' };
+            }
+        }
+
+        // Student is unassigned
+        return { available: true, reason: 'unassigned' };
+
+    } catch (error) {
+        console.error(`Error checking student assignment status for ${studentId}:`, error);
+        return { available: false, reason: 'error', error: error.message };
+    }
 };
 
