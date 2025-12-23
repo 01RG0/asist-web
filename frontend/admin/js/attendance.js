@@ -1,5 +1,22 @@
 // Attendance Reports JavaScript
 
+// Hide WhatsApp schedule elements from attendance page
+document.addEventListener('DOMContentLoaded', function() {
+    // Hide any WhatsApp schedule related elements that might be loaded
+    const whatsappElements = document.querySelectorAll('[id*="whatsapp"], .whatsapp-schedule, .whatsapp-related');
+    whatsappElements.forEach(element => {
+        element.style.display = 'none';
+    });
+
+    // Prevent WhatsApp schedule functionality from loading
+    if (typeof loadWhatsAppSchedules === 'function') {
+        loadWhatsAppSchedules = function() { /* Disabled on attendance page */ };
+    }
+    if (typeof displayWhatsAppSchedules === 'function') {
+        displayWhatsAppSchedules = function() { /* Disabled on attendance page */ };
+    }
+});
+
 // Check authentication
 const user = window.api.getUser();
 if (!window.api.isAuthenticated() || !user || user.role !== 'admin') {
@@ -203,7 +220,18 @@ function exportToExcel() {
         return;
     }
 
-    const data = allAttendanceRecords.map(record => {
+    // Filter out any WhatsApp schedule related records (safety check)
+    const filteredRecords = allAttendanceRecords.filter(record => {
+        // Ensure we're only exporting attendance records, not WhatsApp schedules
+        return record && typeof record.assistant_name === 'string' && record.time_recorded;
+    });
+
+    if (filteredRecords.length === 0) {
+        showAlert('No valid attendance records to export', 'error');
+        return;
+    }
+
+    const data = filteredRecords.map(record => {
         const attendanceDate = new Date(record.time_recorded).toLocaleDateString();
         const attendanceTime = new Date(record.time_recorded).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -236,9 +264,20 @@ function exportIndividualToZip() {
         return;
     }
 
+    // Filter out any WhatsApp schedule related records (safety check)
+    const validAttendanceRecords = allAttendanceRecords.filter(record => {
+        // Ensure we're only exporting attendance records, not WhatsApp schedules
+        return record && typeof record.assistant_name === 'string' && record.time_recorded;
+    });
+
+    if (validAttendanceRecords.length === 0) {
+        showAlert('No valid attendance records to export', 'error');
+        return;
+    }
+
     // Group records by assistant
     const recordsByAssistant = {};
-    allAttendanceRecords.forEach(record => {
+    validAttendanceRecords.forEach(record => {
         const assistantName = record.assistant_name || 'Unknown';
         if (!recordsByAssistant[assistantName]) {
             recordsByAssistant[assistantName] = [];
@@ -254,6 +293,8 @@ function exportIndividualToZip() {
     const zip = new JSZip();
     let processedCount = 0;
     const totalAssistants = Object.keys(recordsByAssistant).length;
+
+    showAlert(`Exporting ${validAttendanceRecords.length} attendance records for ${totalAssistants} assistants...`);
 
     // Create Excel file for each assistant and add to ZIP
     Object.entries(recordsByAssistant).forEach(([assistantName, records]) => {
@@ -297,7 +338,7 @@ function exportIndividualToZip() {
         link.download = zipFilename;
         link.click();
 
-        showAlert(`Successfully exported ${processedCount} attendance files in ZIP (${totalAssistants} assistants)`);
+        showAlert(`Successfully exported ${processedCount} attendance files in ZIP (${totalAssistants} assistants, ${validAttendanceRecords.length} total records)`);
     }).catch(error => {
         console.error('Error creating ZIP file:', error);
         showAlert('Failed to create ZIP file', 'error');
