@@ -440,11 +440,9 @@ document.getElementById('edit-form').addEventListener('submit', async (e) => {
             updateData.end_time = endTime;
         }
 
-        // Add completed count if provided
+        // Send completed count (or null to revert to dynamic)
         const completedCount = document.getElementById('edit-completed-count').value;
-        if (completedCount !== '') {
-            updateData.completed_count = parseInt(completedCount);
-        }
+        updateData.completed_count = completedCount !== '' ? parseInt(completedCount) : null;
 
         const response = await window.api.makeRequest('PUT', `/activities/logs/${currentEditingRecordId}`, updateData);
 
@@ -581,6 +579,10 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
         if (endTime) {
             createData.end_time = endTime;
         }
+
+        // Send completed count if provided
+        const completedCountValue = document.getElementById('add-completed-count').value;
+        createData.completed_count = completedCountValue !== '' ? parseInt(completedCountValue) : null;
 
         const response = await window.api.makeRequest('POST', '/activities/logs', createData);
 

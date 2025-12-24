@@ -1216,9 +1216,9 @@ const assignNextStudent = async (req, res) => {
         nextStudent = await CallSessionStudent.findOneAndUpdate(
             {
                 ...baseQuery,
-                homework_status: { 
-                    $exists: true, 
-                    $ne: null, 
+                homework_status: {
+                    $exists: true,
+                    $ne: null,
                     $ne: '',
                     $regex: /(not done|^no$)/i
                 }
@@ -1401,7 +1401,7 @@ const importCallSessionStudents = async (req, res) => {
             // If the frontend provided a MongoDB _id (existing student record), use that
             // Note: student.id or student._id refers to the MongoDB document ID, not the CSV student ID
             if (student.id || student._id) {
-                filter = { 
+                filter = {
                     _id: student.id || student._id,
                     call_session_id: id  // Still ensure it's in the correct session
                 };
@@ -1419,7 +1419,7 @@ const importCallSessionStudents = async (req, res) => {
                 // This helps when manually adding students without studentId
                 const nameMatch = student.name && String(student.name).trim();
                 const phoneMatch = student.studentPhone && String(student.studentPhone).trim();
-                
+
                 if (nameMatch && phoneMatch) {
                     // Try to match by name + phone to avoid duplicates
                     filter.name = nameMatch;
@@ -1492,7 +1492,7 @@ const importCallSessionStudents = async (req, res) => {
             importedCount = result.upsertedCount || 0;
             updatedCount = result.modifiedCount || 0;
             const totalProcessed = importedCount + updatedCount;
-            
+
             console.log(`Import summary: ${importedCount} inserted, ${updatedCount} updated, ${totalProcessed} total processed out of ${students.length} students in import`);
 
             // Find all students that were affected by this import (updated/created since importTimestamp)
@@ -1529,7 +1529,7 @@ const importCallSessionStudents = async (req, res) => {
                 console.log(`  ${idx + 1}. ${s.name} (ID: ${s.student_id || 'N/A'}) - imported_at: ${s.imported_at}, updatedAt: ${s.updatedAt}`);
             });
         }
-        
+
         // Count total students in session after import
         const totalStudentsInSession = await CallSessionStudent.countDocuments({ call_session_id: id });
         console.log(`Total students in session after import: ${totalStudentsInSession}`);
@@ -1549,7 +1549,7 @@ const importCallSessionStudents = async (req, res) => {
 
         // Get final count of students in session
         const finalStudentCount = await CallSessionStudent.countDocuments({ call_session_id: id });
-        
+
         res.status(200).json({
             success: true,
             message: `${students.length} students processed (${importedCount} inserted, ${updatedCount} updated). Total students in session: ${finalStudentCount}`,
@@ -1657,12 +1657,12 @@ const getCallSessionStudents = async (req, res) => {
 const updateCallSessionStudent = async (req, res) => {
     try {
         const { studentId } = req.params;
-        const { 
-            filterStatus, 
-            attendanceStatus, 
+        const {
+            filterStatus,
+            attendanceStatus,
             homeworkStatus,
-            comment, 
-            howMany, 
+            comment,
+            howMany,
             totalTest,
             name,
             studentPhone,
@@ -2059,8 +2059,11 @@ const getActivityLogs = async (req, res) => {
             const endMoment = log.end_time ? moment.tz(log.end_time, 'Africa/Cairo') : null;
 
             // Get students handled count for call sessions
-            let studentsHandledCount = 0;
-            if (log.type === 'call' && log.call_session_id && log.user_id) {
+            // Prioritize manually set completed_count if it exists, otherwise use dynamic count
+            let studentsHandledCount = log.completed_count;
+
+            if ((studentsHandledCount === undefined || studentsHandledCount === null) &&
+                log.type === 'call' && log.call_session_id && log.user_id) {
                 const key = `${log.user_id._id}_${log.call_session_id._id}`;
                 studentsHandledCount = studentsHandledCounts[key] || 0;
             }
@@ -2073,7 +2076,8 @@ const getActivityLogs = async (req, res) => {
                 start_time: log.start_time,
                 end_time: log.end_time,
                 duration_minutes: log.duration_minutes || 0,
-                students_handled_count: studentsHandledCount,
+                completed_count: log.completed_count,
+                students_handled_count: studentsHandledCount || 0,
                 call_session_id: log.call_session_id?._id || null,
                 call_session_name: log.call_session_id?.name || null,
                 whatsapp_schedule_id: log.whatsapp_schedule_id?._id || null,
@@ -2166,6 +2170,7 @@ const getActivityLogById = async (req, res) => {
             start_time: log.start_time,
             end_time: log.end_time,
             duration_minutes: log.duration_minutes || 0,
+            completed_count: log.completed_count || 0,
             call_session_id: log.call_session_id?._id || null,
             call_session_name: log.call_session_id?.name || null,
             whatsapp_schedule_id: log.whatsapp_schedule_id?._id || null,
