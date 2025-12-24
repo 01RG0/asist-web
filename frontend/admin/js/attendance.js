@@ -137,11 +137,20 @@ async function loadAttendance(filters = {}, page = 1) {
         if (response.success) {
             // Filter out WhatsApp schedule data from attendance records if needed
             // But keep regular session attendance records which have start_time
-            const cleanAttendanceRecords = (response.data || []).map(record => {
-                // Ensure record is valid
-                if (!record || !record.assistant_name || !record.time_recorded) return null;
-                return record;
-            }).filter(Boolean);
+            // Filter out call sessions and WhatsApp records as requested
+            // Only regular session attendance should stay
+            const cleanAttendanceRecords = (response.data || []).filter(record => {
+                if (!record || !record.assistant_name || !record.time_recorded) return false;
+
+                // Exclude call sessions
+                if (record.is_call_session) return false;
+
+                // Exclude WhatsApp and Call records (case-insensitive check on subject)
+                const subject = (record.subject || '').toLowerCase();
+                if (subject.includes('whatsapp') || subject.includes('call')) return false;
+
+                return true;
+            });
 
             allAttendanceRecords = cleanAttendanceRecords;
             filteredRecords = [...allAttendanceRecords];
