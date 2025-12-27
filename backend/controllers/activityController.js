@@ -633,8 +633,10 @@ const updateCallSession = async (req, res) => {
                 // Calculate completed students count for this assistant in this session
                 const completedCount = await CallSessionStudent.countDocuments({
                     call_session_id: id,
-                    assigned_to: log.user_id,
-                    filter_status: { $ne: '' } // Only count students with a status (completed)
+                    $or: [
+                        { assigned_to: log.user_id, filter_status: { $ne: '' } },
+                        { round_two_assigned_to: log.user_id, filter_status: { $ne: 'no-answer', $ne: '' } }
+                    ]
                 });
                 log.completed_count = completedCount;
 
@@ -805,8 +807,10 @@ const startCallSession = async (req, res) => {
                     // Calculate completed students count for this assistant in this session
                     const completedCount = await CallSessionStudent.countDocuments({
                         call_session_id: activeSession._id,
-                        assigned_to: assistantId,
-                        filter_status: { $ne: '' } // Only count students with a status (completed)
+                        $or: [
+                            { assigned_to: assistantId, filter_status: { $ne: '' } },
+                            { round_two_assigned_to: assistantId, filter_status: { $ne: 'no-answer', $ne: '' } }
+                        ]
                     });
                     activityLog.completed_count = completedCount;
 
@@ -986,8 +990,10 @@ const stopCallSession = async (req, res) => {
             // Calculate completed students count for this assistant in this session
             const completedCount = await CallSessionStudent.countDocuments({
                 call_session_id: id,
-                assigned_to: userId,
-                filter_status: { $ne: '' } // Only count students with a status (completed)
+                $or: [
+                    { assigned_to: userId, filter_status: { $ne: '' } },
+                    { round_two_assigned_to: userId, filter_status: { $ne: 'no-answer', $ne: '' } }
+                ]
             });
             activityLog.completed_count = completedCount;
 
@@ -1208,109 +1214,49 @@ const assignNextStudent = async (req, res) => {
         }
 
         // PRIORITY 3: Not Done Homework (matches monitor priority 2)
-        // Monitor checks: (hw.includes('not done') || hw === 'no')
-        // Use atomic findOneAndUpdate to prevent race conditions
         console.log(`[Student Assignment] User ${userId} looking for students who haven't done homework`);
-        // Try to find and assign atomically - this prevents two assistants from getting the same student
-        // We use a broad regex and then verify in JavaScript to ensure exact match
-        nextStudent = await CallSessionStudent.findOneAndUpdate(
-            {
-                ...baseQuery,
-                homework_status: {
-                    $exists: true,
-                    $ne: null,
-                    $ne: '',
-                    $regex: /(not done|^no$)/i
-                }
-            },
-            {
-                $set: {
-                    assigned_to: userId,
-                    assigned_at: new Date()
-                }
-            },
-            { new: true, sort: { createdAt: 1 } }
-        );
-        if (nextStudent) {
-            // Verify the homework status matches exactly (regex might match edge cases)
-            const hw = (nextStudent.homework_status || '').toLowerCase().trim();
-            if ((hw.includes('not done') || hw === 'no') && !hw.includes('not complete')) {
-                console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-                return await sendResponse(nextStudent);
+        nextStudent = await tryAssign({
+            homework_status: {
+                $exists: true,
+                $ne: null,
+                $ne: '',
+                $regex: /(not done|^no$)/i
             }
-            // If it doesn't match, unassign and continue (shouldn't happen, but safety check)
-            nextStudent.assigned_to = null;
-            nextStudent.assigned_at = null;
-            await nextStudent.save();
-            nextStudent = null;
+        });
+        if (nextStudent) {
+            // Double check for precision if needed, but tryAssign handles basic prevention
+            console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
         }
 
         // PRIORITY 4: Not Evaluated (matches monitor priority 3)
-        // Monitor checks: hw.includes('not evaluated') || hw.includes('pending')
         console.log(`[Student Assignment] User ${userId} looking for students who haven't been evaluated`);
-        nextStudent = await CallSessionStudent.findOneAndUpdate(
-            {
-                ...baseQuery,
-                homework_status: {
-                    $exists: true,
-                    $ne: null,
-                    $ne: '',
-                    $regex: /(not evaluated|pending)/i
-                }
-            },
-            {
-                $set: {
-                    assigned_to: userId,
-                    assigned_at: new Date()
-                }
-            },
-            { new: true, sort: { createdAt: 1 } }
-        );
-        if (nextStudent) {
-            const hw = (nextStudent.homework_status || '').toLowerCase().trim();
-            if (hw.includes('not evaluated') || hw.includes('pending')) {
-                console.log(`[Student Assignment] Assigned not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-                return await sendResponse(nextStudent);
+        nextStudent = await tryAssign({
+            homework_status: {
+                $exists: true,
+                $ne: null,
+                $ne: '',
+                $regex: /(not evaluated|pending)/i
             }
-            // If it doesn't match, unassign and continue
-            nextStudent.assigned_to = null;
-            nextStudent.assigned_at = null;
-            await nextStudent.save();
-            nextStudent = null;
+        });
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned not evaluated student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
         }
 
         // PRIORITY 5: Not Complete / Incomplete (matches monitor priority 4)
-        // Monitor checks: hw.includes('not complete') || hw.includes('incomplete')
         console.log(`[Student Assignment] User ${userId} looking for students with incomplete homework`);
-        nextStudent = await CallSessionStudent.findOneAndUpdate(
-            {
-                ...baseQuery,
-                homework_status: {
-                    $exists: true,
-                    $ne: null,
-                    $ne: '',
-                    $regex: /(not complete|incomplete)/i
-                }
-            },
-            {
-                $set: {
-                    assigned_to: userId,
-                    assigned_at: new Date()
-                }
-            },
-            { new: true, sort: { createdAt: 1 } }
-        );
-        if (nextStudent) {
-            const hw = (nextStudent.homework_status || '').toLowerCase().trim();
-            if (hw.includes('not complete') || hw.includes('incomplete')) {
-                console.log(`[Student Assignment] Assigned incomplete homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
-                return await sendResponse(nextStudent);
+        nextStudent = await tryAssign({
+            homework_status: {
+                $exists: true,
+                $ne: null,
+                $ne: '',
+                $regex: /(not complete|incomplete)/i
             }
-            // If it doesn't match, unassign and continue
-            nextStudent.assigned_to = null;
-            nextStudent.assigned_at = null;
-            await nextStudent.save();
-            nextStudent = null;
+        });
+        if (nextStudent) {
+            console.log(`[Student Assignment] Assigned incomplete homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
+            return await sendResponse(nextStudent);
         }
 
         // PRIORITY 6: Empty Homework Status
@@ -2048,8 +1994,12 @@ const getActivityLogs = async (req, res) => {
             for (const pair of uniquePairs) {
                 const count = await CallSessionStudent.countDocuments({
                     call_session_id: pair.sessionId,
-                    assigned_to: pair.userId,
-                    filter_status: { $ne: '' } // Only count students with a status (completed)
+                    $or: [
+                        // Round 1 calls
+                        { assigned_to: pair.userId, filter_status: { $ne: '' } },
+                        // Round 2 calls (status must be updated from 'no-answer')
+                        { round_two_assigned_to: pair.userId, filter_status: { $ne: 'no-answer', $ne: '' } }
+                    ]
                 });
                 studentsHandledCounts[`${pair.userId}_${pair.sessionId}`] = count;
             }
@@ -2059,11 +2009,12 @@ const getActivityLogs = async (req, res) => {
             const startMoment = moment.tz(log.start_time, 'Africa/Cairo');
             const endMoment = log.end_time ? moment.tz(log.end_time, 'Africa/Cairo') : null;
 
-            // Get students handled count for call sessions
-            // Prioritize manually set completed_count if it exists, otherwise use dynamic count
+            // Prioritize manually set completed_count if it exists AND is not 0 (unless session is ongoing)
+            // If session is ongoing (end_time is null), always use dynamic count to keep it fresh
             let studentsHandledCount = log.completed_count;
+            const isOngoing = !log.end_time;
 
-            if ((studentsHandledCount === undefined || studentsHandledCount === null) &&
+            if ((isOngoing || !studentsHandledCount || studentsHandledCount === 0) &&
                 log.type === 'call' && log.call_session_id && log.user_id) {
                 const key = `${log.user_id._id}_${log.call_session_id._id}`;
                 studentsHandledCount = studentsHandledCounts[key] || 0;
@@ -2077,7 +2028,7 @@ const getActivityLogs = async (req, res) => {
                 start_time: log.start_time,
                 end_time: log.end_time,
                 duration_minutes: log.duration_minutes || 0,
-                completed_count: log.completed_count,
+                completed_count: log.completed_count || 0,
                 students_handled_count: studentsHandledCount || 0,
                 call_session_id: log.call_session_id?._id || null,
                 call_session_name: log.call_session_id?.name || null,
