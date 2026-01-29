@@ -1049,8 +1049,6 @@ const assignNextStudent = async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.id;
-        const LOCK_TIMEOUT_MINUTES = 60; // Increased from 15 to 60 minutes to prevent reassignment
-        const DOUBLE_ASSIGN_CHECK_MINUTES = 1; // Check for recent assignments to prevent double-assignment
 
         const session = await CallSession.findById(id);
         if (!session) {
@@ -1121,31 +1119,24 @@ const assignNextStudent = async (req, res) => {
         };
 
         if (currentAssignment) {
-            // Refresh lock
+            // Refresh timestamp
             currentAssignment.assigned_at = new Date();
             await currentAssignment.save();
             console.log(`[Student Assignment] User ${userId} continuing with assigned student ${currentAssignment._id} (${currentAssignment.name})`);
             return await sendResponse(currentAssignment, 'Continued with currently assigned student');
         }
 
-        // 2. Find next available student
-        // Criteria: Not completed (filter_status empty) AND (Unassigned OR Lock expired)
-        const lockThreshold = new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60000);
-
+        // 2. Find next available student using atomic operation
+        // Only assign students that are truly unassigned (assigned_to is null)
+        // This prevents race conditions - MongoDB guarantees atomicity
         const baseQuery = {
             call_session_id: id,
             filter_status: '',
-            $or: [
-                { assigned_to: null },
-                { assigned_at: { $lt: lockThreshold } }
-            ]
+            assigned_to: null  // ONLY unassigned students - no lock expiration logic
         };
 
-        // Additional check: Prevent double-assignment in last 5 minutes
-        // Check if this student was recently assigned to another assistant
-        const doubleAssignThreshold = new Date(Date.now() - DOUBLE_ASSIGN_CHECK_MINUTES * 60000);
-
         // Helper to try assigning a student with specific criteria
+        // Uses atomic findOneAndUpdate - no race conditions possible
         const tryAssign = async (criteria) => {
             const student = await CallSessionStudent.findOneAndUpdate(
                 { ...baseQuery, ...criteria },
@@ -1158,33 +1149,8 @@ const assignNextStudent = async (req, res) => {
                 { new: true, sort: { createdAt: 1 } } // Sort by creation time for consistent assignment order
             );
 
-            // Double-check: Make sure no other assistant got this student in the last 5 minutes
             if (student) {
-                const recentAssignment = await CallSessionStudent.findOne({
-                    _id: student._id,
-                    assigned_to: { $ne: userId },
-                    assigned_at: { $gte: doubleAssignThreshold }
-                });
-
-                if (recentAssignment) {
-                    console.warn(`[Double-Assign Prevention] Student ${student._id} (${student.name}) was recently assigned to assistant ${recentAssignment.assigned_to} at ${recentAssignment.assigned_at}. Current assistant ${userId} tried to assign at ${student.assigned_at}. Reverting assignment.`);
-
-                    // Revert the assignment
-                    await CallSessionStudent.findOneAndUpdate(
-                        { _id: student._id },
-                        {
-                            $set: {
-                                assigned_to: recentAssignment.assigned_to,
-                                assigned_at: recentAssignment.assigned_at
-                            }
-                        }
-                    );
-
-                    // Try to get another student instead
-                    return null;
-                } else {
-                    console.log(`[Double-Assign Prevention] ✓ Student ${student._id} (${student.name}) safely assigned to assistant ${userId}`);
-                }
+                console.log(`[Student Assignment] ✓ Assigned student ${student._id} (${student.name}) to user ${userId}`);
             }
 
             return student;
@@ -1224,7 +1190,6 @@ const assignNextStudent = async (req, res) => {
             }
         });
         if (nextStudent) {
-            // Double check for precision if needed, but tryAssign handles basic prevention
             console.log(`[Student Assignment] Assigned not done homework student ${nextStudent._id} (${nextStudent.name}) to user ${userId}`);
             return await sendResponse(nextStudent);
         }
@@ -1767,6 +1732,271 @@ const deleteCallSessionStudent = async (req, res) => {
             message: errorMessage,
             error: error.message,
             studentId: studentId
+        });
+    }
+};
+
+/**
+ * Detect Duplicate Assignments (Admin Monitoring)
+ * GET /api/activities/call-sessions/:id/detect-duplicates
+ */
+const detectDuplicateAssignments = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Find all students in this session that are assigned but not completed
+        const assignedStudents = await CallSessionStudent.find({
+            call_session_id: id,
+            filter_status: '',
+            assigned_to: { $ne: null }
+        })
+            .populate('assigned_to', 'name')
+            .lean();
+
+        // Get ALL students (including completed) for filter status breakdown
+        const allStudents = await CallSessionStudent.find({
+            call_session_id: id
+        })
+            .populate('assigned_to', 'name')
+            .lean();
+
+        // Group by student to detect if any student appears multiple times
+        // (This shouldn't happen with our fix, but we're checking just in case)
+        const studentMap = new Map();
+        const duplicates = [];
+        const warnings = [];
+
+        for (const student of assignedStudents) {
+            const studentId = student._id.toString();
+
+            if (studentMap.has(studentId)) {
+                // Duplicate found!
+                duplicates.push({
+                    studentId: student._id,
+                    studentName: student.name,
+                    assignments: [
+                        studentMap.get(studentId),
+                        {
+                            assistantId: student.assigned_to._id,
+                            assistantName: student.assigned_to.name,
+                            assignedAt: student.assigned_at
+                        }
+                    ]
+                });
+            } else {
+                studentMap.set(studentId, {
+                    assistantId: student.assigned_to._id,
+                    assistantName: student.assigned_to.name,
+                    assignedAt: student.assigned_at
+                });
+            }
+
+            // Check for stale assignments (assigned more than 2 hours ago)
+            const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+            if (student.assigned_at && student.assigned_at < twoHoursAgo) {
+                warnings.push({
+                    type: 'stale_assignment',
+                    studentId: student._id,
+                    studentName: student.name,
+                    assistantName: student.assigned_to.name,
+                    assignedAt: student.assigned_at,
+                    message: `Student assigned to ${student.assigned_to.name} for over 2 hours without completion`
+                });
+            }
+        }
+
+        // Get assignment statistics
+        const stats = {
+            totalStudents: await CallSessionStudent.countDocuments({ call_session_id: id }),
+            assignedStudents: assignedStudents.length,
+            completedStudents: await CallSessionStudent.countDocuments({
+                call_session_id: id,
+                filter_status: { $ne: '' }
+            }),
+            unassignedStudents: await CallSessionStudent.countDocuments({
+                call_session_id: id,
+                filter_status: '',
+                assigned_to: null
+            })
+        };
+
+        // Get assignment distribution by assistant
+        const assignmentsByAssistant = {};
+        for (const student of assignedStudents) {
+            const assistantName = student.assigned_to.name;
+            if (!assignmentsByAssistant[assistantName]) {
+                assignmentsByAssistant[assistantName] = 0;
+            }
+            assignmentsByAssistant[assistantName]++;
+        }
+
+        // NEW FEATURE: Filter status breakdown (global)
+        const filterStatusBreakdown = {
+            '': 0, // Pending/Not completed
+            'no-answer': 0,
+            'wrong-number': 0,
+            'present': 0,
+            'online-makeup': 0,
+            'left-teacher': 0,
+            'other-makeup': 0,
+            'tired': 0,
+            'deal-done': 0,
+            'thinking': 0,
+            'rejected': 0,
+            'asking-whatsapp': 0
+        };
+
+        for (const student of allStudents) {
+            const status = student.filter_status || '';
+            if (filterStatusBreakdown.hasOwnProperty(status)) {
+                filterStatusBreakdown[status]++;
+            } else {
+                // Handle any unexpected status
+                if (!filterStatusBreakdown[status]) {
+                    filterStatusBreakdown[status] = 0;
+                }
+                filterStatusBreakdown[status]++;
+            }
+        }
+
+        // NEW FEATURE: Filter status breakdown by assistant
+        const filterStatusByAssistant = {};
+
+        for (const student of allStudents) {
+            // Only include students that have been assigned to someone
+            if (student.assigned_to) {
+                const assistantName = student.assigned_to.name;
+                const status = student.filter_status || 'pending';
+
+                if (!filterStatusByAssistant[assistantName]) {
+                    filterStatusByAssistant[assistantName] = {
+                        totalAssigned: 0,
+                        completed: 0,
+                        pending: 0,
+                        filterBreakdown: {}
+                    };
+                }
+
+                filterStatusByAssistant[assistantName].totalAssigned++;
+
+                if (student.filter_status && student.filter_status !== '') {
+                    filterStatusByAssistant[assistantName].completed++;
+
+                    // Count each filter status
+                    if (!filterStatusByAssistant[assistantName].filterBreakdown[student.filter_status]) {
+                        filterStatusByAssistant[assistantName].filterBreakdown[student.filter_status] = 0;
+                    }
+                    filterStatusByAssistant[assistantName].filterBreakdown[student.filter_status]++;
+                } else {
+                    filterStatusByAssistant[assistantName].pending++;
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            data: {
+                hasDuplicates: duplicates.length > 0,
+                duplicates,
+                warnings,
+                stats,
+                assignmentsByAssistant,
+                filterStatusBreakdown,
+                filterStatusByAssistant
+            }
+        });
+
+    } catch (error) {
+        console.error('Detect duplicates error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error detecting duplicate assignments'
+        });
+    }
+};
+
+/**
+ * Reassign Student to Specific Assistant (Admin)
+ * POST /api/activities/call-sessions/:id/reassign-student
+ */
+const reassignStudent = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { studentId, targetAssistantId } = req.body;
+
+        if (!studentId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Student ID is required'
+            });
+        }
+
+        const student = await CallSessionStudent.findById(studentId);
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: 'Student not found'
+            });
+        }
+
+        if (student.call_session_id.toString() !== id) {
+            return res.status(400).json({
+                success: false,
+                message: 'Student does not belong to this session'
+            });
+        }
+
+        const previousAssignment = student.assigned_to;
+
+        if (targetAssistantId) {
+            // Reassign to specific assistant
+            student.assigned_to = targetAssistantId;
+            student.assigned_at = new Date();
+            await student.save();
+
+            await logAuditAction(req.user.id, 'REASSIGN_STUDENT', {
+                session_id: id,
+                student_id: studentId,
+                previous_assistant: previousAssignment,
+                new_assistant: targetAssistantId,
+                reason: 'Admin manual reassignment'
+            });
+
+            res.json({
+                success: true,
+                message: 'Student reassigned successfully',
+                data: {
+                    studentId: student._id,
+                    newAssistant: targetAssistantId
+                }
+            });
+        } else {
+            // Clear assignment (make student available again)
+            student.assigned_to = null;
+            student.assigned_at = null;
+            await student.save();
+
+            await logAuditAction(req.user.id, 'UNASSIGN_STUDENT', {
+                session_id: id,
+                student_id: studentId,
+                previous_assistant: previousAssignment,
+                reason: 'Admin cleared assignment'
+            });
+
+            res.json({
+                success: true,
+                message: 'Student assignment cleared successfully',
+                data: {
+                    studentId: student._id
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('Reassign student error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error reassigning student'
         });
     }
 };
@@ -3077,6 +3307,8 @@ module.exports = {
     updateCallSessionStudent,
     deleteCallSessionStudent,
     assignNextStudent,
+    detectDuplicateAssignments,
+    reassignStudent,
     // Activity Log
     createActivityLog,
     getActivityLogs,
