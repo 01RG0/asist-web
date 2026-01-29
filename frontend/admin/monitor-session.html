@@ -119,9 +119,12 @@
         }
 
         @keyframes pulse-red {
-            0%, 100% {
+
+            0%,
+            100% {
                 box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
             }
+
             50% {
                 box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
             }
@@ -198,7 +201,9 @@
                     </svg>
                     Export
                 </button>
-                <button type="button" class="btn btn-outline" id="round-two-btn" style="background: var(--accent-orange); border: none; color: white; display: inline-flex; cursor: pointer; pointer-events: auto; opacity: 1; position: relative; z-index: 10;" title="Create a new separate session with all 'no-answer' students">
+                <button type="button" class="btn btn-outline" id="round-two-btn"
+                    style="background: var(--accent-orange); border: none; color: white; display: inline-flex; cursor: pointer; pointer-events: auto; opacity: 1; position: relative; z-index: 10;"
+                    title="Create a new separate session with all 'no-answer' students">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
@@ -225,6 +230,9 @@
                 <div class="stat-label">Pending</div>
             </div>
         </div>
+
+        <!-- Advanced Monitoring Stats (Filter Breakdown) -->
+        <div id="monitoring-dashboard-container" style="margin-bottom: 2rem;"></div>
 
         <!-- Students Table -->
         <div class="card">
@@ -319,16 +327,19 @@
                             <th>Name</th>
                             <th>Phone</th>
                             <th>Parent Phone</th>
-                            <th>Center</th>
-                            <th>Exam Mark</th>
+                            <th id="center-header-column">Center</th>
+                            <th id="exam-mark-header-column">Exam Mark</th>
                             <th id="attendance-header-column">Attendance</th>
                             <th id="homework-header-column">Homework</th>
                             <th>Status</th>
                             <th>Assigned To</th>
                             <th>Last Comment</th>
                             <th style="width: 100px;">Actions</th>
-                            <th id="round-two-header" style="display: none; background: var(--accent-orange); color: white;">Round Two</th>
-                            <th id="round-two-assigned-header" style="display: none; background: var(--accent-orange); color: white;">Round Two Assigned</th>
+                            <th id="round-two-header"
+                                style="display: none; background: var(--accent-orange); color: white;">Round Two</th>
+                            <th id="round-two-assigned-header"
+                                style="display: none; background: var(--accent-orange); color: white;">Round Two
+                                Assigned</th>
                         </tr>
                     </thead>
                     <tbody id="students-table-body">
@@ -419,6 +430,12 @@
                             <option value="other-makeup">Other Makeup</option>
                             <option value="tired">Tired</option>
                         </select>
+                    </div>
+
+                    <div class="form-group" id="admin-comment-edit-group">
+                        <label class="form-label">Admin Note (Marketing Only)</label>
+                        <textarea id="admin-comment-edit" class="form-input" rows="3"
+                            placeholder="Add a note for the assistant..."></textarea>
                     </div>
                 </form>
             </div>
