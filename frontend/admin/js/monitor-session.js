@@ -59,11 +59,7 @@ function formatFilterStatus(status) {
         'online-makeup': 'Online Makeup',
         'left-teacher': 'Left Teacher',
         'other-makeup': 'Other Makeup',
-        'tired': 'Tired',
-        'deal-done': 'Deal is done',
-        'thinking': 'Thinking',
-        'rejected': 'Rejected',
-        'asking-whatsapp': 'Asking for whatsapp'
+        'tired': 'Tired'
     };
 
     return statusMap[status] || status;
@@ -73,21 +69,13 @@ function formatFilterStatus(status) {
 function getFilterStatusColor(status) {
     if (!status) return { bg: '#f3f4f6', text: '#374151' };
 
-    const statusColors = {
-        'present': { bg: '#dcfce7', text: '#166534' },
-        'wrong-number': { bg: '#fef2f2', text: '#991b1b' },
-        'no-answer': { bg: '#fff7ed', text: '#9a3412' },
-        'online-makeup': { bg: '#ecfeff', text: '#083344' },
-        'left-teacher': { bg: '#f5f3ff', text: '#4c1d95' },
-        'other-makeup': { bg: '#eef2ff', text: '#1e1b4b' },
-        'tired': { bg: '#fffbeb', text: '#78350f' },
-        'deal-done': { bg: '#dcfce7', text: '#166534' },
-        'thinking': { bg: '#eff6ff', text: '#1e40af' },
-        'rejected': { bg: '#fef2f2', text: '#991b1b' },
-        'asking-whatsapp': { bg: '#f0fdf4', text: '#166534' }
-    };
+    // Present status gets special green styling
+    if (status === 'present') {
+        return { bg: '#dcfce7', text: '#166534' };
+    }
 
-    return statusColors[status] || { bg: '#f3f4f6', text: '#374151' };
+    // Other statuses use the same styling as before
+    return { bg: '#dcfce7', text: '#166534' };
 }
 
 // Initialize
@@ -95,7 +83,6 @@ async function init() {
     await loadSessionDetails();
     await loadStudents();
     setupEventListeners();
-    loadMonitoringDashboard(); // Load advanced monitoring stats
 }
 
 // Load Session Details
@@ -138,14 +125,6 @@ async function loadSessionDetails() {
             } else if (homeworkHeader) {
                 homeworkHeader.style.display = '';
             }
-
-            // Hide/show exam mark column header based on session type
-            const examMarkHeader = document.getElementById('exam-mark-header-column');
-            if (examMarkHeader && currentSessionData.session_type === 'marketing') {
-                examMarkHeader.style.display = 'none';
-            } else if (examMarkHeader) {
-                examMarkHeader.style.display = '';
-            }
         }
     } catch (error) {
         console.error('Error loading session:', error);
@@ -183,11 +162,11 @@ function renderStudentsTable(students) {
     const tbody = document.getElementById('students-table-body');
     const sessionType = currentSessionData?.session_type || 'normal';
     const isMarketing = sessionType === 'marketing';
-
-    // Adjust colspan: subtract 3 if marketing (no exam mark, attendance, homework columns), then add round two columns if enabled
-    const baseColspan = isMarketing ? 11 : 14;
+    
+    // Adjust colspan: subtract 2 if marketing (no attendance and homework columns), then add round two columns if enabled
+    const baseColspan = isMarketing ? 12 : 14;
     const colspan = roundTwoEnabled ? baseColspan + 2 : baseColspan;
-
+    
     if (students.length === 0) {
         tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center">No students found. Import or add some!</td></tr>`;
         return;
@@ -222,7 +201,7 @@ function renderStudentsTable(students) {
                 <td>${s.studentPhone || '-'}</td>
                 <td>${s.parentPhone || '-'}</td>
                 <td>${s.center || '-'}</td>
-                ${isMarketing ? '' : `<td>${s.examMark !== undefined && s.examMark !== null && s.examMark !== '' ? s.examMark : '-'}</td>`}
+                <td>${s.examMark !== undefined && s.examMark !== null && s.examMark !== '' ? s.examMark : '-'}</td>
                 ${attendanceCell}
                 ${homeworkCell}
                 <td>
@@ -298,7 +277,7 @@ function handleImport(file) {
     const validExtensions = ['.xlsx', '.xls', '.csv'];
     const fileName = file.name.toLowerCase();
     const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
-
+    
     if (!isValidFile) {
         showAlert('Invalid file type. Please select an Excel file (.xlsx, .xls) or CSV file.', 'error');
         document.getElementById('import-file').value = ''; // Reset
@@ -306,7 +285,7 @@ function handleImport(file) {
     }
 
     const reader = new FileReader();
-
+    
     reader.onerror = (error) => {
         console.error('FileReader error:', error);
         showAlert('Failed to read file. Please try again.', 'error');
@@ -316,7 +295,7 @@ function handleImport(file) {
     reader.onload = async (e) => {
         try {
             const data = e.target.result;
-
+            
             if (!data) {
                 throw new Error('File is empty or could not be read');
             }
@@ -507,7 +486,7 @@ function handleImport(file) {
                 stack: error.stack,
                 response: error.response
             });
-
+            
             // Show more detailed error message
             let errorMessage = 'Failed to process file';
             if (error.message) {
@@ -515,7 +494,7 @@ function handleImport(file) {
             } else if (error.response && error.response.data) {
                 errorMessage += ': ' + (error.response.data.message || error.response.data.error || 'Unknown error');
             }
-
+            
             showAlert(errorMessage, 'error');
         }
     };
@@ -575,7 +554,7 @@ async function saveStudentsList(studentsList) {
             response: error.response,
             status: error.status
         });
-
+        
         // Extract more detailed error message
         let errorMessage = 'Failed to save students';
         if (error.response) {
@@ -584,7 +563,7 @@ async function saveStudentsList(studentsList) {
         } else if (error.message) {
             errorMessage = error.message;
         }
-
+        
         throw new Error(errorMessage);
     }
 }
@@ -694,9 +673,9 @@ async function startRoundTwo(event) {
         event.preventDefault();
         event.stopPropagation();
     }
-
+    
     console.log('Round two button clicked!');
-
+    
     if (!confirm('Are you sure you want to start Round Two? This will create a new separate call session with all "no-answer" students from this session.')) {
         return;
     }
@@ -708,10 +687,10 @@ async function startRoundTwo(event) {
             const newSessionId = response.data.new_session_id;
             const newSessionName = response.data.new_session_name;
             const studentsCount = response.data.students_count;
-
+            
             // Show success message with option to navigate to new session
             const message = `Round Two session created successfully!\n\n${studentsCount} students imported to new session: "${newSessionName}"\n\nWould you like to open the new session?`;
-
+            
             if (confirm(message)) {
                 // Navigate to the new session's monitor page
                 window.location.href = `/admin/monitor-session.html?session=${newSessionId}`;
@@ -789,63 +768,7 @@ function openEditModal(index) {
     document.getElementById('attendance-status-edit').value = student.attendanceStatus || '';
     document.getElementById('homework-status-edit').value = student.homeworkStatus || '';
     document.getElementById('student-status').value = student.filterStatus || '';
-    if (document.getElementById('admin-comment-edit')) {
-        document.getElementById('admin-comment-edit').value = student.adminComment || '';
-    }
     document.getElementById('modal-title').textContent = index === -1 ? 'Add Student' : 'Edit Student';
-
-    // Hide/show attendance and homework fields based on session type
-    const sessionType = currentSessionData?.session_type || 'normal';
-    const isMarketing = sessionType === 'marketing';
-
-    const attendanceField = document.getElementById('attendance-status-edit')?.closest('.form-group');
-    const homeworkField = document.getElementById('homework-status-edit')?.closest('.form-group');
-    const examMarkField = document.getElementById('exam-mark-edit')?.closest('.form-group');
-    const adminCommentField = document.getElementById('admin-comment-edit-group');
-
-    if (attendanceField) {
-        attendanceField.style.display = isMarketing ? 'none' : '';
-    }
-    if (homeworkField) {
-        homeworkField.style.display = isMarketing ? 'none' : '';
-    }
-    if (examMarkField) {
-        examMarkField.style.display = isMarketing ? 'none' : '';
-    }
-    if (adminCommentField) {
-        adminCommentField.style.display = isMarketing ? 'block' : 'none';
-    }
-
-    // Update Status options in modal
-    const statusSelectModal = document.getElementById('student-status');
-    const normalStatuses = [
-        { value: 'present', label: 'Present (حاضر)' },
-        { value: 'wrong-number', label: 'Wrong Number' },
-        { value: 'no-answer', label: 'No Answer' },
-        { value: 'online-makeup', label: 'Online Makeup' },
-        { value: 'left-teacher', label: 'Left Teacher' },
-        { value: 'other-makeup', label: 'Other Makeup' },
-        { value: 'tired', label: 'Tired' }
-    ];
-    const marketingStatuses = [
-        { value: 'deal-done', label: 'Deal is done' },
-        { value: 'thinking', label: 'Thinking' },
-        { value: 'rejected', label: 'Rejected' },
-        { value: 'asking-whatsapp', label: 'Asking for whatsapp' },
-        { value: 'no-answer', label: 'No Answer' },
-        { value: 'wrong-number', label: 'Wrong Number' }
-    ];
-    const statusesToUse = isMarketing ? marketingStatuses : normalStatuses;
-
-    const currentVal = student.filterStatus || '';
-    statusSelectModal.innerHTML = '<option value="">Pending</option>';
-    statusesToUse.forEach(s => {
-        const option = document.createElement('option');
-        option.value = s.value;
-        option.textContent = s.label;
-        statusSelectModal.appendChild(option);
-    });
-    statusSelectModal.value = currentVal;
 
     studentModal.classList.add('active');
 }
@@ -880,7 +803,6 @@ studentForm.addEventListener('submit', async (e) => {
     const newAttendanceStatus = document.getElementById('attendance-status-edit').value;
     const newHomeworkStatus = document.getElementById('homework-status-edit').value;
     const newStatus = document.getElementById('student-status').value;
-    const newAdminComment = document.getElementById('admin-comment-edit')?.value || '';
 
     if (index > -1) {
         // Edit existing
@@ -902,8 +824,7 @@ studentForm.addEventListener('submit', async (e) => {
                     examMark: newExamMark,
                     attendanceStatus: newAttendanceStatus,
                     homeworkStatus: newHomeworkStatus,
-                    filterStatus: newStatus,
-                    adminComment: newAdminComment
+                    filterStatus: newStatus
                 });
                 showAlert('Student updated');
                 loadStudents();
@@ -1126,62 +1047,6 @@ function populateFilters() {
         centerSelect.appendChild(option);
     });
     centerSelect.value = currentCenter; // Restore selection
-
-    // Hide/show attendance and homework filters based on session type
-    const sessionType = currentSessionData?.session_type || 'normal';
-    const isMarketing = sessionType === 'marketing';
-
-    const attendanceFilter = document.getElementById('filter-attendance')?.closest('.form-group');
-    const homeworkFilter = document.getElementById('filter-homework')?.closest('.form-group');
-    const examMarkFilter = document.getElementById('filter-exam-mark')?.closest('.form-group');
-
-    if (attendanceFilter) {
-        attendanceFilter.style.display = isMarketing ? 'none' : '';
-    }
-    if (homeworkFilter) {
-        homeworkFilter.style.display = isMarketing ? 'none' : '';
-    }
-    if (examMarkFilter) {
-        examMarkFilter.style.display = isMarketing ? 'none' : '';
-    }
-
-    // Update Global Status Filter options
-    const statusSelect = document.getElementById('filter-status');
-    const currentStatusValue = statusSelect.value;
-
-    const normalStatusesList = [
-        { value: 'pending', label: 'Pending' },
-        { value: 'present', label: 'Present (حاضر)' },
-        { value: 'wrong-number', label: 'Wrong Number' },
-        { value: 'no-answer', label: 'No Answer' },
-        { value: 'online-makeup', label: 'Online Makeup' },
-        { value: 'left-teacher', label: 'Left Teacher' },
-        { value: 'other-makeup', label: 'Other Makeup' },
-        { value: 'tired', label: 'Tired' }
-    ];
-
-    const marketingStatusesList = [
-        { value: 'deal-done', label: 'Deal is done' },
-        { value: 'thinking', label: 'Thinking' },
-        { value: 'rejected', label: 'Rejected' },
-        { value: 'asking-whatsapp', label: 'Asking for whatsapp' },
-        { value: 'no-answer', label: 'No Answer' },
-        { value: 'wrong-number', label: 'Wrong Number' }
-    ];
-
-    const globalStatusesToUse = isMarketing ? marketingStatusesList : normalStatusesList;
-
-    statusSelect.innerHTML = '<option value="">All Call Statuses</option>';
-    globalStatusesToUse.forEach(s => {
-        const option = document.createElement('option');
-        option.value = s.value;
-        option.textContent = s.label;
-        statusSelect.appendChild(option);
-    });
-
-    // Try to restore selection if it's still valid
-    const isValid = Array.from(statusSelect.options).some(opt => opt.value === currentStatusValue);
-    statusSelect.value = isValid ? currentStatusValue : '';
 }
 
 // Helper: Get Student Priority for Sorting
@@ -1299,13 +1164,13 @@ function applyFilters() {
 function setupEventListeners() {
     const importBtn = document.getElementById('import-btn');
     const importFile = document.getElementById('import-file');
-
+    
     if (importBtn && importFile) {
         // Ensure button is enabled and clickable
         importBtn.disabled = false;
         importBtn.style.pointerEvents = 'auto';
         importBtn.style.cursor = 'pointer';
-
+        
         importBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -1368,293 +1233,6 @@ function setupEventListeners() {
     document.getElementById('cancel-student-btn').addEventListener('click', closeEditModal);
     studentModal.addEventListener('click', (e) => { if (e.target === studentModal) closeEditModal(); });
 }
-
-
-// ==========================================
-// Monitoring Dashboard (Filter Breakdown)
-// ==========================================
-
-function injectMonitoringStyles() {
-    const styleId = 'monitoring-dashboard-styles';
-    if (document.getElementById(styleId)) return;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr; /* Global Stats | Assistant Breakdown */
-            gap: 20px;
-        }
-        @media (max-width: 1000px) {
-            .dashboard-grid { grid-template-columns: 1fr; }
-        }
-        
-        .dashboard-card {
-            background: white;
-            border-radius: var(--radius-lg);
-            padding: 1.5rem;
-            box-shadow: var(--shadow-sm);
-        }
-
-        .dashboard-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        /* Global Filter Grid */
-        .filter-stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 12px;
-        }
-
-        .filter-stat-item {
-            display: flex;
-            flex-direction: column;
-            padding: 12px;
-            border-radius: 8px;
-            background: #f8f9fa;
-            border-left: 4px solid #ccc;
-        }
-
-        .filter-label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            font-weight: 600;
-        }
-
-        .filter-value {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-top: 4px;
-        }
-
-        /* Assistant Cards */
-        .assistant-stats-container {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            max-height: 400px;
-            overflow-y: auto;
-            padding-right: 5px;
-        }
-
-        .assistant-stat-card {
-            border: 1px solid #eee;
-            border-radius: 8px;
-            padding: 12px;
-            background: #fff;
-        }
-
-        .assistant-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-            font-weight: 600;
-        }
-
-        .completion-badge {
-            font-size: 0.75rem;
-            padding: 2px 8px;
-            border-radius: 12px;
-            background: #eee;
-            color: #555;
-        }
-
-        .mini-stats-row {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 10px;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            background: #f9f9f9;
-            padding: 6px;
-            border-radius: 4px;
-        }
-
-        .filter-bars {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .filter-bar-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.8rem;
-        }
-
-        .bar-label { width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .bar-count { width: 30px; text-align: right; font-weight: 600; }
-        
-        .bar-track {
-            flex: 1;
-            height: 6px;
-            background: #f0f0f0;
-            border-radius: 3px;
-        }
-        
-        .bar-fill {
-            height: 100%;
-            border-radius: 3px;
-        }
-    `;
-    document.head.appendChild(style);
-}
-
-async function loadMonitoringDashboard() {
-    try {
-        if (!currentSessionId) return;
-        const response = await window.api.makeRequest('GET', `/activities/call-sessions/${currentSessionId}/detect-duplicates`);
-        if (response.success) {
-            renderMonitoringDashboard(response.data);
-
-            // Log stale warnings if any
-            if (response.data.warnings && response.data.warnings.length > 0) {
-                console.warn('Monitoring warnings:', response.data.warnings);
-            }
-        }
-    } catch (error) {
-        console.error('Error loading monitoring data:', error);
-    }
-}
-
-function renderMonitoringDashboard(data) {
-    const container = document.getElementById('monitoring-dashboard-container');
-    if (!container) return;
-
-    injectMonitoringStyles();
-
-    const { filterStatusBreakdown, filterStatusByAssistant } = data;
-
-    // Filter Config for colors and labels
-    const filterConfig = {
-        'no-answer': { label: 'No Answer', color: '#ffb302' },   // Orange
-        'present': { label: 'Present', color: '#10b981' },       // Green
-        'wrong-number': { label: 'Wrong #', color: '#ef4444' },  // Red
-        'deal-done': { label: 'Deal Done', color: '#059669' },   // Dark Green
-        'thinking': { label: 'Thinking', color: '#3b82f6' },     // Blue
-        'tired': { label: 'Tired', color: '#f59e0b' },           // Amber
-        'rejected': { label: 'Rejected', color: '#dc2626' },     // Dark Red
-        'asking-whatsapp': { label: 'Ask WA', color: '#25d366' }, // WhatsApp Green
-        'online-makeup': { label: 'Online', color: '#06b6d4' },  // Cyan
-        'left-teacher': { label: 'Left', color: '#8b5cf6' },     // Purple
-        'other-makeup': { label: 'Other', color: '#6366f1' },    // Indigo
-        '': { label: 'Pending', color: '#9ca3af' }               // Gray
-    };
-
-    // 1. Render Global Breakdown
-    let globalHtml = `<div class="dashboard-card">
-        <div class="dashboard-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-            Global Call Status
-        </div>
-        <div class="filter-stats-grid">`;
-
-    // specific order or sort by count
-    const sortedFilters = Object.entries(filterStatusBreakdown || {})
-        .sort((a, b) => b[1] - a[1]); // Descending count
-
-    for (const [status, count] of sortedFilters) {
-        if (count === 0 && status !== 'no-answer' && status !== 'present') continue; // Hide zero counts except important ones
-
-        const config = filterConfig[status] || { label: status, color: '#6c757d' };
-        globalHtml += `
-            <div class="filter-stat-item" style="border-left-color: ${config.color}">
-                <div class="filter-label">${config.label}</div>
-                <div class="filter-value" style="color: ${config.color}">${count}</div>
-            </div>`;
-    }
-
-    // Fallback if empty
-    if (sortedFilters.length === 0) globalHtml += '<div style="grid-column: 1/-1; color: #999;">No data yet</div>';
-
-    globalHtml += `</div></div>`;
-
-    // 2. Render Assistant Breakdown
-    let assistantsHtml = `<div class="dashboard-card">
-        <div class="dashboard-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-            Assistant Performance
-        </div>
-        <div class="assistant-stats-container">`;
-
-    // Sort assistants by total assigned descending
-    const sortedAssistants = Object.entries(filterStatusByAssistant || {})
-        .sort((a, b) => b[1].totalAssigned - a[1].totalAssigned);
-
-    for (const [name, stats] of sortedAssistants) {
-        const completionRate = stats.totalAssigned > 0
-            ? Math.round((stats.completed / stats.totalAssigned) * 100)
-            : 0;
-
-        const badgeColor = completionRate >= 80 ? '#dcfce7' : (completionRate >= 50 ? '#fef3c7' : '#fee2e2');
-        const badgeText = completionRate >= 80 ? '#166534' : (completionRate >= 50 ? '#92400e' : '#991b1b');
-
-        assistantsHtml += `
-            <div class="assistant-stat-card">
-                <div class="assistant-header">
-                    <span>${name}</span>
-                    <span class="completion-badge" style="background: ${badgeColor}; color: ${badgeText}">${completionRate}% Done</span>
-                </div>
-                <div class="mini-stats-row">
-                    <span>Total: ${stats.totalAssigned}</span>
-                    <span>Done: ${stats.completed}</span>
-                    <span>Pending: ${stats.pending}</span>
-                </div>
-                <div class="filter-bars">`;
-
-        // Show filters for this assistant
-        const assistantFilters = Object.entries(stats.filterBreakdown)
-            .sort((a, b) => b[1] - a[1]);
-
-        for (const [status, count] of assistantFilters) {
-            const config = filterConfig[status] || { label: status, color: '#6c757d' };
-            const pct = Math.round((count / (stats.completed || 1)) * 100);
-
-            assistantsHtml += `
-                <div class="filter-bar-row">
-                    <span class="bar-label" title="${config.label}">${config.label}</span>
-                    <div class="bar-track">
-                        <div class="bar-fill" style="width: ${pct}%; background: ${config.color}"></div>
-                    </div>
-                    <span class="bar-count">${count}</span>
-                </div>`;
-        }
-
-        if (Object.keys(stats.filterBreakdown).length === 0) {
-            assistantsHtml += `<div style="font-size: 0.8rem; color: #ccc; text-align: center;">No calls yet</div>`;
-        }
-
-        assistantsHtml += `</div></div>`;
-    }
-
-    if (sortedAssistants.length === 0) {
-        assistantsHtml += '<div style="text-align: center; color: #999; padding: 20px;">No assistants assigned yet</div>';
-    }
-
-    assistantsHtml += `</div></div>`;
-
-    // Combine
-    container.innerHTML = `<div class="dashboard-grid">${globalHtml}${assistantsHtml}</div>`;
-}
-
-// Auto-refresh stats every 30 seconds
-setInterval(() => {
-    if (currentSessionId) {
-        loadMonitoringDashboard();
-    }
-}, 30000);
 
 // Init
 init();

@@ -23,8 +23,6 @@ const {
     updateCallSessionStudent,
     deleteCallSessionStudent,
     assignNextStudent,
-    detectDuplicateAssignments,
-    reassignStudent,
     // Activity Log
     createActivityLog,
     getActivityLogs,
@@ -63,10 +61,6 @@ router.get('/call-sessions/:id/students', getCallSessionStudents); // Both admin
 router.put('/call-sessions/students/:studentId', updateCallSessionStudent); // Assistant updates status/comment
 router.delete('/call-sessions/students/:studentId', deleteCallSessionStudent); // Allow deleting students (temporarily removed admin check for testing)
 router.post('/call-sessions/students/:studentId/remove', deleteCallSessionStudent); // Alternative POST endpoint for removal
-
-// Admin Monitoring routes
-router.get('/call-sessions/:id/detect-duplicates', checkRole('admin'), detectDuplicateAssignments);
-router.post('/call-sessions/:id/reassign-student', checkRole('admin'), reassignStudent);
 
 // Activity Log routes (Admin only)
 router.post('/logs', checkRole('admin'), createActivityLog);
