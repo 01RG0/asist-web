@@ -102,4 +102,3 @@ callSessionStudentSchema.index({ call_session_id: 1, filter_status: 1, assigned_
 callSessionStudentSchema.index({ call_session_id: 1, assigned_to: 1, filter_status: 1 });
 
 module.exports = mongoose.model('CallSessionStudent', callSessionStudentSchema);
-
