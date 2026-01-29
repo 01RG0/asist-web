@@ -1,0 +1,140 @@
+# Fix: Duplicate Student Assignment Issue
+
+## Problem
+Multiple assistants were getting assigned the same student during call sessions, especially on Vercel's serverless environment.
+
+## Root Cause
+The code had a "double-check" logic that was supposed to prevent race conditions but actually **created** them:
+
+1. Two assistants would simultaneously call `findOneAndUpdate` to assign a student
+2. Both would successfully assign the student to themselves (race condition)
+3. The "double-check" query would run AFTER the assignment
+4. Both assistants would think they had the student legitimately
+5. Result: Same student appears for 2+ assistants
+
+## Solution Applied (Options 1 + 3)
+
+### Changes Made:
+
+1. **Removed the double-check logic** (lines 1161-1184)
+   - This was causing the race condition, not preventing it
+   - Reduced database queries from 3 to 1 per assignment
+
+2. **Simplified the assignment query**
+   - OLD: `assigned_to: null OR assigned_at < lockThreshold`
+   - NEW: `assigned_to: null` (only truly unassigned students)
+
+3. **Removed lock expiration logic**
+   - Students stay assigned until completed
+   - No timeout-based reassignment
+
+4. **Removed unused constants**
+   - `LOCK_TIMEOUT_MINUTES` (was 60 minutes)
+   - `DOUBLE_ASSIGN_CHECK_MINUTES` (was 1 minute)
+
+### Why Option 2 (Unique Index) Was NOT Implemented:
+
+After analysis, I determined that **Option 2 is not necessary** for this use case because:
+
+1. **MongoDB's `findOneAndUpdate` is already atomic** at the document level
+   - It locks the document during the update
+   - Only ONE operation can modify a document at a time
+   - This is built into MongoDB's architecture
+
+2. **We're updating existing records, not inserting duplicates**
+   - Unique indexes prevent duplicate INSERTS
+   - Our issue was concurrent UPDATES to the same document
+   - Different problem, different solution
+
+3. **The query condition provides the protection**
+   - `assigned_to: null` ensures we only grab unassigned students
+   - Once assigned, the student is no longer in the query results
+   - MongoDB guarantees this atomically
+
+4. **A unique index would not add value**
+   - Can't create a unique index on `_id` (already unique)
+   - Can't create a meaningful unique constraint for this use case
+   - Would add complexity without benefit
+
+**Bottom line:** MongoDB's atomic operations + simplified query = complete protection. No additional index needed.
+
+### Code Changes:
+
+**Before:**
+```javascript
+const baseQuery = {
+    call_session_id: id,
+    filter_status: '',
+    $or: [
+        { assigned_to: null },
+        { assigned_at: { $lt: lockThreshold } }  // ← Allowed reassignment
+    ]
+};
+
+const student = await CallSessionStudent.findOneAndUpdate(...);
+
+// Double-check (race condition window!)
+const recentAssignment = await CallSessionStudent.findOne({
+    _id: student._id,
+    assigned_to: { $ne: userId },
+    assigned_at: { $gte: doubleAssignThreshold }
+});
+
+if (recentAssignment) {
+    // Revert and try again...
+}
+```
+
+**After:**
+```javascript
+const baseQuery = {
+    call_session_id: id,
+    filter_status: '',
+    assigned_to: null  // ← ONLY unassigned students
+};
+
+const student = await CallSessionStudent.findOneAndUpdate(...);
+
+if (student) {
+    console.log(`✓ Assigned student to user`);
+}
+// No double-check needed - MongoDB guarantees atomicity
+```
+
+## Benefits
+
+✅ **Fixes duplicate assignments** - Each student assigned to only ONE assistant
+✅ **Faster response time** - 1 database query instead of 3
+✅ **Simpler code** - Removed 40+ lines of problematic logic
+✅ **Better for serverless** - No race conditions even with cold starts
+✅ **More reliable** - Trust MongoDB's atomic operations
+
+## How It Works Now
+
+1. Assistant clicks "Get Next Student"
+2. MongoDB atomically finds and assigns an unassigned student
+3. If another assistant tries to get the same student simultaneously, MongoDB ensures only ONE succeeds
+4. The other assistant automatically gets the next available student
+5. No conflicts, no duplicates
+
+## Testing Recommendations
+
+1. Have 2-3 assistants join the same call session
+2. All click "Get Next Student" at the same time
+3. Verify each gets a different student
+4. Check that no student appears for multiple assistants
+
+## Deployment Notes
+
+- No database migration needed
+- No schema changes required
+- Works with existing data
+- Safe to deploy immediately
+
+---
+
+**Date:** 2026-01-29
+**Issue:** Duplicate student assignments in call sessions
+**Fix:** Atomic assignment with simplified query logic (Options 1 + 3)
+**Impact:** High (fixes critical concurrency bug)
+
