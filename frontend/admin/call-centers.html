@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centers - Admin Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../shared/css/common.css">
+    <link rel="stylesheet" href="css/admin.css">
+    <style>
+        /* Tab Navigation Styles */
+        .tab-button {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+        }
+
+        .tab-button:hover {
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+
+        .tab-button.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .tab-content {
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* Attendance Status Badge */
+        .attendance-badge {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: default;
+        }
+
+        .attendance-badge.present {
+            background: rgba(34, 197, 94, 0.1);
+            color: #22c55e;
+        }
+
+        .attendance-badge.absent {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+
+        .attendance-badge.no-session {
+            background: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Sidebar -->
+    <div id="sidebar-container"></div>
+
+    <!-- Sidebar Toggle Button -->
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle Sidebar">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+    </button>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="top-bar">
+            <h1>Centers</h1>
+        </div>
+
+        <div id="alert-container"></div>
+
+        <!-- Tabs Navigation -->
+        <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color);">
+            <button class="tab-button active" data-tab="centers" onclick="switchTab('centers')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 10c0 7-3 10-8 10s-8-3-8-10"></path>
+                    <circle cx="12" cy="3" r="1"></circle>
+                </svg>
+                Centers Management
+            </button>
+            <button class="tab-button" data-tab="daily-calls" onclick="switchTab('daily-calls')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                Daily Call List
+            </button>
+        </div>
+
+        <!-- Centers Tab -->
+        <div id="centers-tab" class="tab-content" style="display: block;">
+            <div class="card">
+                <div class="section-header" style="margin-bottom: 1.5rem;">
+                    <h2>Centers Management</h2>
+                </div>
+
+            <!-- Filters -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                <div class="form-group" style="margin: 0; min-width: 250px;">
+                    <label class="form-label" style="margin-bottom: 0.5rem;">Center</label>
+                    <select id="filter-center" class="form-select">
+                        <option value="">All Centers</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin: 0; min-width: 200px;">
+                    <label class="form-label" style="margin-bottom: 0.5rem;">Subject</label>
+                    <select id="filter-subject" class="form-select">
+                        <option value="">All Subjects</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin: 0; min-width: 200px;">
+                    <label class="form-label" style="margin-bottom: 0.5rem;">Day of Week</label>
+                    <select id="filter-day" class="form-select">
+                        <option value="">All Days</option>
+                        <option value="Monday">Monday</option>
+                        <option value="Tuesday">Tuesday</option>
+                        <option value="Wednesday">Wednesday</option>
+                        <option value="Thursday">Thursday</option>
+                        <option value="Friday">Friday</option>
+                        <option value="Saturday">Saturday</option>
+                        <option value="Sunday">Sunday</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin: 0; min-width: 200px;">
+                    <label class="form-label" style="margin-bottom: 0.5rem;">Status</label>
+                    <select id="filter-status" class="form-select">
+                        <option value="">All Status</option>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin: 0; min-width: 200px;">
+                    <label class="form-label" style="margin-bottom: 0.5rem;">Date From</label>
+                    <input type="date" id="filter-date-from" class="form-input">
+                </div>
+
+                <div class="form-group" style="margin: 0; min-width: 200px;">
+                    <label class="form-label" style="margin-bottom: 0.5rem;">Date To</label>
+                    <input type="date" id="filter-date-to" class="form-input">
+                </div>
+
+                <div style="display: flex; align-items: flex-end; gap: 0.5rem;">
+                    <button id="clear-filters-btn" class="btn btn-outline">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Clear Filters
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Center</th>
+                            <th>Subjects</th>
+                            <th>Day of Week</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="centers-table">
+                        <tr>
+                            <td colspan="6" class="text-center" style="color: var(--text-secondary);">
+                                No centers found
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        </div>
+
+        <!-- Daily Call List Tab -->
+        <div id="daily-calls-tab" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="section-header" style="margin-bottom: 1.5rem;">
+                    <h2>Daily Student Call List</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">
+                        View this week's attendance and student details for making daily calls
+                    </p>
+                </div>
+
+                <!-- Daily Call Filters -->
+                <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div class="form-group" style="margin: 0; min-width: 250px;">
+                        <label class="form-label" style="margin-bottom: 0.5rem;">Select Center</label>
+                        <select id="daily-filter-center" class="form-select">
+                            <option value="">-- Choose a Center --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin: 0; min-width: 250px;">
+                        <label class="form-label" style="margin-bottom: 0.5rem;">Select Subject</label>
+                        <select id="daily-filter-subject" class="form-select">
+                            <option value="">-- Choose a Subject --</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-end; gap: 0.5rem;">
+                        <button id="load-students-btn" class="btn btn-primary" onclick="loadDailyStudents()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="m21 21-4.35-4.35"></path>
+                            </svg>
+                            Load Students
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Week Info -->
+                <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; display: none;" id="week-info">
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.9rem;">
+                        <strong>Week:</strong> <span id="week-range"></span>
+                    </p>
+                </div>
+
+                <!-- Students Table -->
+                <div class="table-container" id="students-container" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin: 0;">Students & Attendance</h3>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-sm btn-primary" onclick="exportStudentList()" title="Export to CSV">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                Export
+                            </button>
+                        </div>
+                    </div>
+
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="min-width: 180px;">Student Name</th>
+                                <th style="min-width: 150px;">Email</th>
+                                <th style="min-width: 80px; text-align: center;">Mon</th>
+                                <th style="min-width: 80px; text-align: center;">Tue</th>
+                                <th style="min-width: 80px; text-align: center;">Wed</th>
+                                <th style="min-width: 80px; text-align: center;">Thu</th>
+                                <th style="min-width: 80px; text-align: center;">Fri</th>
+                                <th style="min-width: 80px; text-align: center;">Sat</th>
+                                <th style="min-width: 80px; text-align: center;">Sun</th>
+                                <th style="min-width: 120px; text-align: center;">Attendance</th>
+                                <th style="min-width: 100px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="students-table">
+                            <tr>
+                                <td colspan="11" class="text-center" style="color: var(--text-secondary);">
+                                    Select a center and subject to load students
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="no-students-message" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                    Select a center and subject to view students
+                </div>
+            </div>
+        </div>
+
+    <!-- Load Shared Scripts -->
+    <script src="../shared/js/sidebar-template.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script src="../shared/js/api.js"></script>
+
+    <!-- Page-specific Script -->
+    <script>
+        // Check authentication
+        const user = window.api.getUser();
+        if (!window.api.isAuthenticated() || !user || user.role !== 'admin') {
+            window.location.href = 'index.html';
+        }
+
+        let allCenters = [];
+
+        // Page initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCenters();
+            
+            // Filter functionality
+            document.getElementById('filter-center').addEventListener('change', applyFilters);
+            document.getElementById('filter-subject').addEventListener('change', applyFilters);
+            document.getElementById('filter-day').addEventListener('change', applyFilters);
+            document.getElementById('filter-status').addEventListener('change', applyFilters);
+            document.getElementById('filter-date-from').addEventListener('change', applyFilters);
+            document.getElementById('filter-date-to').addEventListener('change', applyFilters);
+            
+            // Clear filters button
+            document.getElementById('clear-filters-btn').addEventListener('click', clearFilters);
+
+            // Initialize first tab as active
+            document.querySelector('.tab-button').classList.add('active');
+        });
+
+        // Load centers from backend
+        async function loadCenters() {
+            try {
+                const response = await window.api.makeRequest('GET', '/centers');
+                
+                if (response.success && response.data) {
+                    allCenters = response.data;
+                    populateCenterFilter();
+                    populateSubjectFilter();
+                    renderCentersTable();
+                } else {
+                    showAlert('Failed to load centers', 'error');
+                    renderEmptyTable();
+                }
+            } catch (error) {
+                console.error('Error loading centers:', error);
+                showAlert('Error loading centers', 'error');
+                renderEmptyTable();
+            }
+        }
+
+        // Populate center filter dropdown
+        function populateCenterFilter() {
+            const filterCenter = document.getElementById('filter-center');
+            
+            // Clear existing options except "All Centers"
+            filterCenter.innerHTML = '<option value="">All Centers</option>';
+            
+            // Add center options sorted by name
+            const sortedCenters = [...allCenters].sort((a, b) => 
+                a.name.localeCompare(b.name)
+            );
+            
+            sortedCenters.forEach(center => {
+                const option = document.createElement('option');
+                option.value = center.id;
+                option.textContent = center.name;
+                filterCenter.appendChild(option);
+            });
+        }
+
+        // Populate subject filter dropdown
+        function populateSubjectFilter() {
+            const filterSubject = document.getElementById('filter-subject');
+            
+            // Clear existing options except "All Subjects"
+            filterSubject.innerHTML = '<option value="">All Subjects</option>';
+            
+            // Extract unique subjects from centers
+            const subjectsSet = new Set();
+            allCenters.forEach(center => {
+                if (center.subjects) {
+                    if (Array.isArray(center.subjects)) {
+                        center.subjects.forEach(subject => {
+                            if (subject) subjectsSet.add(subject.trim());
+                        });
+                    } else if (typeof center.subjects === 'string') {
+                        center.subjects.split(',').forEach(subject => {
+                            if (subject.trim()) subjectsSet.add(subject.trim());
+                        });
+                    }
+                }
+            });
+            
+            // Add subject options sorted alphabetically
+            const sortedSubjects = Array.from(subjectsSet).sort();
+            sortedSubjects.forEach(subject => {
+                const option = document.createElement('option');
+                option.value = subject.toLowerCase();
+                option.textContent = subject;
+                filterSubject.appendChild(option);
+            });
+        }
+
+        // Render centers table
+        function renderCentersTable() {
+            const tableBody = document.getElementById('centers-table');
+            
+            if (allCenters.length === 0) {
+                renderEmptyTable();
+                return;
+            }
+
+            tableBody.innerHTML = allCenters.map(center => {
+                // Calculate day of week and date based on center data
+                const dayOfWeek = center.day_of_week || center.dayOfWeek || '-';
+                const date = center.date || (center.created_at ? new Date(center.created_at).toISOString().split('T')[0] : '-');
+                
+                // Format subjects - handle array or string
+                let subjects = '-';
+                if (center.subjects) {
+                    if (Array.isArray(center.subjects)) {
+                        subjects = center.subjects.join(', ');
+                    } else if (typeof center.subjects === 'string') {
+                        subjects = center.subjects;
+                    }
+                }
+                
+                const status = center.status || 'Active';
+
+                return `
+                    <tr data-center-id="${center.id}" data-date="${date}">
+                        <td><strong>${escapeHtml(center.name)}</strong></td>
+                        <td>${subjects}</td>
+                        <td>${dayOfWeek}</td>
+                        <td>${date !== '-' ? formatDate(date) : '-'}</td>
+                        <td>
+                            <span class="badge badge-success">
+                                ${status}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon btn-primary" title="Create Call Session" onclick="createCallSession('${center.id}', '${escapeHtml(center.name)}')">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                    </svg>
+                                </button>
+                                <button class="btn-icon" title="View" onclick="viewCenter('${center.id}')">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                                <button class="btn-icon btn-danger" title="Delete" onclick="confirmDeleteCenter('${center.id}', '${escapeHtml(center.name)}')">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Render empty table
+        function renderEmptyTable() {
+            const tableBody = document.getElementById('centers-table');
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center" style="color: var(--text-secondary);">
+                        No centers found
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Apply filters
+        function applyFilters() {
+            const filterCenterId = document.getElementById('filter-center').value;
+            const filterSubject = document.getElementById('filter-subject').value.toLowerCase();
+            const filterDay = document.getElementById('filter-day').value;
+            const filterStatus = document.getElementById('filter-status').value;
+            const filterDateFrom = document.getElementById('filter-date-from').value;
+            const filterDateTo = document.getElementById('filter-date-to').value;
+            
+            const rows = document.querySelectorAll('#centers-table tr');
+            
+            rows.forEach(row => {
+                // Skip the "no centers" row
+                if (row.querySelector('td[colspan]')) {
+                    return;
+                }
+                
+                const centerId = row.getAttribute('data-center-id') || '';
+                const subject = row.cells[1]?.textContent.toLowerCase() || '';
+                const dayOfWeek = row.cells[2]?.textContent || '';
+                const status = row.cells[4]?.textContent.trim() || '';
+                const rowDate = row.getAttribute('data-date') || '';
+                
+                let show = true;
+                
+                // Apply center filter
+                if (filterCenterId && centerId !== filterCenterId) {
+                    show = false;
+                }
+                
+                // Apply subject filter
+                if (filterSubject && subject !== filterSubject) {
+                    show = false;
+                }
+                
+                // Apply day filter
+                if (filterDay && dayOfWeek !== filterDay) {
+                    show = false;
+                }
+                
+                // Apply status filter
+                if (filterStatus && status !== filterStatus) {
+                    show = false;
+                }
+                
+                // Apply date range filters
+                if (filterDateFrom && rowDate && rowDate !== '-' && rowDate < filterDateFrom) {
+                    show = false;
+                }
+                
+                if (filterDateTo && rowDate && rowDate !== '-' && rowDate > filterDateTo) {
+                    show = false;
+                }
+                
+                row.style.display = show ? '' : 'none';
+            });
+        }
+
+        // Clear filters
+        function clearFilters() {
+            document.getElementById('filter-center').value = '';
+            document.getElementById('filter-subject').value = '';
+            document.getElementById('filter-day').value = '';
+            document.getElementById('filter-status').value = '';
+            document.getElementById('filter-date-from').value = '';
+            document.getElementById('filter-date-to').value = '';
+            applyFilters();
+        }
+
+        // Create call session for center
+        function createCallSession(centerId, centerName) {
+            // Redirect to call-sessions page (you can add query params if needed)
+            window.location.href = `call-sessions.html?center=${centerId}`;
+        }
+
+        // View center details
+        async function viewCenter(centerId) {
+            try {
+                const response = await window.api.makeRequest('GET', `/centers/${centerId}`);
+                
+                if (response.success && response.data) {
+                    const center = response.data;
+                    
+                    // Format subjects for display
+                    let subjectsDisplay = 'N/A';
+                    if (center.subjects) {
+                        if (Array.isArray(center.subjects)) {
+                            subjectsDisplay = center.subjects.join(', ');
+                        } else if (typeof center.subjects === 'string') {
+                            subjectsDisplay = center.subjects;
+                        }
+                    }
+                    
+                    alert(
+                        `Center Details:\n\n` +
+                        `Name: ${center.name}\n` +
+                        `Subjects: ${subjectsDisplay}\n` +
+                        `Address: ${center.address || 'N/A'}\n` +
+                        `Day of Week: ${center.day_of_week || center.dayOfWeek || 'N/A'}\n` +
+                        `Date: ${center.date ? formatDate(center.date) : 'N/A'}\n` +
+                        `Status: ${center.status || 'Active'}\n` +
+                        `Latitude: ${center.latitude}\n` +
+                        `Longitude: ${center.longitude}\n` +
+                        `Radius: ${center.radius_m}m\n` +
+                        `Created: ${center.created_at ? formatDate(center.created_at) : 'N/A'}`
+                    );
+                } else {
+                    showAlert('Failed to load center details', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading center:', error);
+                showAlert('Error loading center details', 'error');
+            }
+        }
+
+        // Confirm delete center
+        function confirmDeleteCenter(centerId, centerName) {
+            if (confirm(`Are you sure you want to delete "${centerName}"?\n\nThis action cannot be undone.`)) {
+                deleteCenter(centerId);
+            }
+        }
+
+        // Delete center
+        async function deleteCenter(centerId) {
+            try {
+                const response = await window.api.makeRequest('DELETE', `/centers/${centerId}`);
+                
+                if (response.success) {
+                    showAlert('Center deleted successfully', 'success');
+                    // Remove from local array
+                    allCenters = allCenters.filter(c => c.id !== centerId);
+                    populateCenterFilter();
+                    populateSubjectFilter();
+                    renderCentersTable();
+                } else {
+                    showAlert(response.message || 'Failed to delete center', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting center:', error);
+                showAlert('Error deleting center', 'error');
+            }
+        }
+
+        // Utility functions
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('alert-container');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        // ===== TAB SWITCHING FUNCTIONALITY =====
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.getElementById('centers-tab').style.display = 'none';
+            document.getElementById('daily-calls-tab').style.display = 'none';
+
+            // Remove active class from all buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').style.display = 'block';
+
+            // Add active class to clicked button
+            event.target.closest('.tab-button').classList.add('active');
+
+            // Load daily filters when switching to daily-calls tab
+            if (tabName === 'daily-calls') {
+                populateDailyFilters();
+            }
+        }
+
+        // ===== DAILY CALL LIST FUNCTIONALITY =====
+
+        let dailyCallData = null;
+
+        // Populate filters for daily call list
+        function populateDailyFilters() {
+            const centerSelect = document.getElementById('daily-filter-center');
+            const subjectSelect = document.getElementById('daily-filter-subject');
+
+            // Clear existing options except first
+            centerSelect.innerHTML = '<option value="">-- Choose a Center --</option>';
+            subjectSelect.innerHTML = '<option value="">-- Choose a Subject --</option>';
+
+            // Add center options
+            const sortedCenters = [...allCenters].sort((a, b) => 
+                a.name.localeCompare(b.name)
+            );
+            
+            sortedCenters.forEach(center => {
+                const option = document.createElement('option');
+                option.value = center.id;
+                option.textContent = center.name;
+                centerSelect.appendChild(option);
+            });
+
+            // Extract and add subject options
+            const subjectsSet = new Set();
+            allCenters.forEach(center => {
+                // Get subjects from sessions for this center
+                // For now, we'll populate subjects dynamically when center is selected
+            });
+
+            // Add listener to center select to populate subjects
+            centerSelect.addEventListener('change', populateDailySubjects);
+        }
+
+        // Populate subjects when center is selected
+        async function populateDailySubjects() {
+            const centerId = document.getElementById('daily-filter-center').value;
+            const subjectSelect = document.getElementById('daily-filter-subject');
+
+            subjectSelect.innerHTML = '<option value="">-- Choose a Subject --</option>';
+
+            if (!centerId) return;
+
+            try {
+                // Get sessions for this center to extract subjects
+                const response = await window.api.makeRequest('GET', `/sessions?center_id=${centerId}`);
+                
+                if (response.success && response.data) {
+                    const subjectsSet = new Set();
+                    response.data.forEach(session => {
+                        if (session.subject) {
+                            subjectsSet.add(session.subject);
+                        }
+                    });
+
+                    const sortedSubjects = Array.from(subjectsSet).sort();
+                    sortedSubjects.forEach(subject => {
+                        const option = document.createElement('option');
+                        option.value = subject;
+                        option.textContent = subject;
+                        subjectSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading subjects:', error);
+            }
+        }
+
+        // Load students for selected center and subject
+        async function loadDailyStudents() {
+            const centerId = document.getElementById('daily-filter-center').value;
+            const subject = document.getElementById('daily-filter-subject').value;
+
+            if (!centerId || !subject) {
+                showAlert('Please select both center and subject', 'error');
+                return;
+            }
+
+            try {
+                document.getElementById('load-students-btn').disabled = true;
+                document.getElementById('load-students-btn').textContent = 'Loading...';
+
+                const response = await window.api.makeRequest('GET', 
+                    `/attendance/weekly-summary?center_id=${centerId}&subject=${encodeURIComponent(subject)}`
+                );
+
+                if (response.success && response.data) {
+                    dailyCallData = response.data;
+                    renderDailyStudents(response.data);
+                    showAlert('Students loaded successfully', 'success');
+                } else {
+                    showAlert(response.message || 'Failed to load students', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading students:', error);
+                showAlert('Error loading students', 'error');
+            } finally {
+                document.getElementById('load-students-btn').disabled = false;
+                document.getElementById('load-students-btn').textContent = 'Load Students';
+            }
+        }
+
+        // Render students table
+        function renderDailyStudents(data) {
+            const container = document.getElementById('students-container');
+            const tableBody = document.getElementById('students-table');
+            const weekInfo = document.getElementById('week-info');
+            const noMessage = document.getElementById('no-students-message');
+
+            if (!data.students || data.students.length === 0) {
+                container.style.display = 'none';
+                noMessage.textContent = 'No students found for this center and subject';
+                noMessage.style.display = 'block';
+                return;
+            }
+
+            // Show week info
+            weekInfo.querySelector('#week-range').textContent = 
+                `${data.week.start} to ${data.week.end}`;
+            weekInfo.style.display = 'block';
+
+            // Render table
+            tableBody.innerHTML = data.students.map((student, index) => {
+                const attendanceCells = student.attendance.map(att => {
+                    const badgeClass = att.status === 'present' ? 'present' : 
+                                     att.status === 'absent' ? 'absent' : 'no-session';
+                    const displayText = att.status === 'present' ? '✓' : 
+                                      att.status === 'absent' ? '✗' : '-';
+                    return `<td style="text-align: center;">
+                        <span class="attendance-badge ${badgeClass}" title="${att.status}">
+                            ${displayText}
+                        </span>
+                    </td>`;
+                }).join('');
+
+                const attendancePercent = `${student.attendanceRate}%`;
+
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(student.name)}</strong></td>
+                        <td>${escapeHtml(student.email)}</td>
+                        ${attendanceCells}
+                        <td style="text-align: center;">
+                            <span style="background: ${student.attendanceRate >= 75 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; 
+                                         color: ${student.attendanceRate >= 75 ? '#22c55e' : '#ef4444'};
+                                         padding: 0.25rem 0.75rem;
+                                         border-radius: 4px;
+                                         font-weight: 600;
+                                         font-size: 0.85rem;">
+                                ${attendancePercent}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="action-buttons" style="display: flex; gap: 0.5rem;">
+                                <button class="btn-icon btn-primary" title="Call Student" onclick="callStudent('${student.id}', '${escapeHtml(student.name)}', '${student.email}')">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                    </svg>
+                                </button>
+                                <button class="btn-icon" title="View Details" onclick="viewStudentDetails('${student.id}', '${escapeHtml(student.name)}')">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.style.display = 'block';
+            noMessage.style.display = 'none';
+        }
+
+        // Call student function
+        function callStudent(studentId, studentName, email) {
+            const callLog = {
+                studentId: studentId,
+                studentName: studentName,
+                email: email,
+                callTime: new Date().toLocaleString(),
+                centerName: dailyCallData?.center_name,
+                subject: dailyCallData?.subject
+            };
+
+            // Log the call attempt
+            console.log('Call initiated:', callLog);
+            showAlert(`Calling ${studentName}...`, 'success');
+
+            // TODO: Integrate with actual calling system (WhatsApp, phone, etc.)
+            // For now, just show a message
+            alert(`Call initiated for ${studentName}\n\nEmail: ${email}\nSubject: ${dailyCallData?.subject}`);
+        }
+
+        // View student details
+        function viewStudentDetails(studentId, studentName) {
+            const student = dailyCallData?.students.find(s => s.id === studentId);
+            if (!student) return;
+
+            let attendanceDetails = 'Attendance Details:\n\n';
+            student.attendance.forEach(att => {
+                const status = att.status === 'present' ? '✓ Present' : 
+                             att.status === 'absent' ? '✗ Absent' : '- No Session';
+                attendanceDetails += `${att.day}: ${status}\n`;
+            });
+
+            alert(
+                `Student: ${studentName}\n\n` +
+                `Email: ${student.email}\n` +
+                `Total Attendance: ${student.totalAttendance}\n` +
+                `Total Absence: ${student.totalAbsence}\n` +
+                `Attendance Rate: ${student.attendanceRate}%\n\n` +
+                attendanceDetails
+            );
+        }
+
+        // Export student list to CSV
+        function exportStudentList() {
+            if (!dailyCallData || !dailyCallData.students.length) {
+                showAlert('No students to export', 'error');
+                return;
+            }
+
+            const data = dailyCallData.students;
+            const centerName = dailyCallData.center_name;
+            const subject = dailyCallData.subject;
+            const weekStart = dailyCallData.week.start;
+            const weekEnd = dailyCallData.week.end;
+
+            // Build CSV header
+            let csv = `Center,${centerName}\n`;
+            csv += `Subject,${subject}\n`;
+            csv += `Week,${weekStart} to ${weekEnd}\n`;
+            csv += `Export Date,${new Date().toLocaleDateString()}\n\n`;
+
+            // Add table header
+            csv += 'Student Name,Email,Mon,Tue,Wed,Thu,Fri,Sat,Sun,Attendance Rate\n';
+
+            // Add data rows
+            data.forEach(student => {
+                const attendance = student.attendance.map(att => {
+                    return att.status === 'present' ? 'P' : 
+                           att.status === 'absent' ? 'A' : '-';
+                }).join(',');
+
+                csv += `${student.name},${student.email},${attendance},${student.attendanceRate}%\n`;
+            });
+
+            // Trigger download
+            const element = document.createElement('a');
+            element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv));
+            element.setAttribute('download', `call-list-${subject.replace(/\s+/g, '-')}-${weekStart}.csv`);
+            element.style.display = 'none';
+            document.body.appendChild(element);
+            element.click();
+            document.body.removeChild(element);
+
+            showAlert('Student list exported successfully', 'success');
+        }
+    </script>
+</body>
+
+</html>
