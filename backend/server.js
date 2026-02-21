@@ -4,6 +4,9 @@ const path = require('path');
 require('dotenv').config();
 const mongoose = require('mongoose');
 
+// Vercel Web Analytics
+const { inject } = require('@vercel/analytics/server');
+
 // MongoDB connection
 const connectDB = require('./config/database');
 
@@ -25,6 +28,9 @@ const activityRoutes = require('./routes/activityRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Initialize Vercel Web Analytics
+inject(app);
 
 /* ---------- Middleware ---------- */
 // CORS configuration - allow Vercel deployment and localhost
