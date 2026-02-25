@@ -358,7 +358,13 @@ function handleImport(file) {
                             if (normRow.studentPhone.startsWith('0')) {
                                 normRow.studentPhone = normRow.studentPhone.substring(1);
                             }
-                            normRow.studentPhone = '+20' + normRow.studentPhone;
+
+                            // Check if it already starts with '20' (country code)
+                            if (normRow.studentPhone.startsWith('20')) {
+                                normRow.studentPhone = '+' + normRow.studentPhone;
+                            } else {
+                                normRow.studentPhone = '+20' + normRow.studentPhone;
+                            }
                         }
                     }
                     else if (['parentphone', 'fatherphone', 'motherphone', 'parentmobile'].includes(cleanKey)) {
@@ -369,7 +375,13 @@ function handleImport(file) {
                             if (normRow.parentPhone.startsWith('0')) {
                                 normRow.parentPhone = normRow.parentPhone.substring(1);
                             }
-                            normRow.parentPhone = '+20' + normRow.parentPhone;
+
+                            // Check if it already starts with '20' (country code)
+                            if (normRow.parentPhone.startsWith('20')) {
+                                normRow.parentPhone = '+' + normRow.parentPhone;
+                            } else {
+                                normRow.parentPhone = '+20' + normRow.parentPhone;
+                            }
                         }
                     }
                     else if (['exammark', 'mark', 'score', 'degree', 'grade', 'exam'].includes(cleanKey)) normRow.examMark = val;

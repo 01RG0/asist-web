@@ -274,7 +274,7 @@ function parseImportFile(file) {
                 // Skip header row (first row)
                 const dataRows = jsonData.slice(1);
                 console.log(`📊 CSV parsed: ${jsonData.length} total rows in file, ${dataRows.length} data rows (after skipping header)`);
-                
+
                 // Debug: Log the first few rows to see structure
                 if (dataRows.length > 0) {
                     console.log('Sample first row:', dataRows[0]);
@@ -364,7 +364,13 @@ function parseImportFile(file) {
                             if (newRow.studentPhone.startsWith('0')) {
                                 newRow.studentPhone = newRow.studentPhone.substring(1);
                             }
-                            newRow.studentPhone = '+20' + newRow.studentPhone;
+
+                            // Check if it already starts with '20' (country code)
+                            if (newRow.studentPhone.startsWith('20')) {
+                                newRow.studentPhone = '+' + newRow.studentPhone;
+                            } else {
+                                newRow.studentPhone = '+20' + newRow.studentPhone;
+                            }
                         }
                     }
                     if (newRow.parentPhone) {
@@ -375,7 +381,13 @@ function parseImportFile(file) {
                             if (newRow.parentPhone.startsWith('0')) {
                                 newRow.parentPhone = newRow.parentPhone.substring(1);
                             }
-                            newRow.parentPhone = '+20' + newRow.parentPhone;
+
+                            // Check if it already starts with '20' (country code)
+                            if (newRow.parentPhone.startsWith('20')) {
+                                newRow.parentPhone = '+' + newRow.parentPhone;
+                            } else {
+                                newRow.parentPhone = '+20' + newRow.parentPhone;
+                            }
                         }
                     }
 
@@ -384,7 +396,7 @@ function parseImportFile(file) {
                     if (newRow.studentId && debugIds.includes(String(newRow.studentId).trim())) {
                         console.log(`✅ Parsed student with tracked ID ${newRow.studentId}:`, newRow.name);
                     }
-                    
+
                     return newRow;
                 }).filter(r => {
                     if (r === null) return false;
@@ -397,13 +409,13 @@ function parseImportFile(file) {
                 });
 
                 console.log(`✅ Mapped ${normalizedData.length} valid students from ${jsonData.length} total rows (${dataRows.length} data rows after header).`);
-                
+
                 const filteredCount = dataRows.length - normalizedData.length;
                 if (filteredCount > 0) {
                     console.error(`❌ ${filteredCount} rows were filtered out due to validation!`);
                     console.error(`Expected ${dataRows.length} students, got ${normalizedData.length}`);
                 }
-                
+
                 // Debug: Check for the missing student IDs
                 const debugIds = ['1477', '2433', '2998'];
                 const foundDebugIds = [];
@@ -414,13 +426,13 @@ function parseImportFile(file) {
                         console.log(`✅ Found student with ID ${studentId}:`, s.name, 'Phone:', s.studentPhone);
                     }
                 });
-                
+
                 // Check which IDs are missing
                 const missingIds = debugIds.filter(id => !foundDebugIds.includes(id));
                 if (missingIds.length > 0) {
                     console.error(`❌ MISSING STUDENT IDs: ${missingIds.join(', ')} - These were filtered out during parsing!`);
                 }
-                
+
                 resolve(normalizedData);
             } catch (error) {
                 console.error("Parsing error:", error);
@@ -509,7 +521,7 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
             studentsToUpload.forEach(s => {
                 // ONLY check Student ID for duplicates - no phone/name checking
                 const studentId = s.studentId ? String(s.studentId).trim() : null;
-                
+
                 if (studentId) {
                     // Has Student ID - check for duplicates by ID only
                     if (!seenIds.has(studentId)) {
@@ -532,7 +544,7 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
                 console.log(`ℹ️ ${studentsWithoutId.length} students without Student ID will all be imported (no deduplication)`);
             }
             console.log(`📊 Before deduplication: ${studentsToUpload.length}, After: ${uniqueStudents.length}`);
-            
+
             // Debug: Check if any of the missing IDs were removed as duplicates
             const debugIds = ['1477', '2433', '2998'];
             duplicateInfo.forEach(dup => {
@@ -540,7 +552,7 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
                     console.error(`❌ MISSING STUDENT FOUND IN DUPLICATES! ID: ${dup.id}, Name: ${dup.name}`);
                 }
             });
-            
+
             studentsToUpload = uniqueStudents;
         }
 
