@@ -302,7 +302,7 @@ function parseImportFile(file) {
                             }
                         }
                         // Name detection (but exclude if it's actually an ID column)
-                        else if (['name', 'studentname'].includes(cleanKey) || (cleanKey === 'student' && !newRow.studentId)) {
+                        else if (['name', 'studentname', 'student'].includes(cleanKey)) {
                             newRow.name = val;
                         }
                         // Phone detection (Student)
