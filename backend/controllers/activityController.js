@@ -1580,7 +1580,8 @@ const updateCallSessionStudent = async (req, res) => {
             parentPhone,
             studentId: studentIdField,
             center,
-            examMark
+            examMark,
+            adminComment
         } = req.body;
         const userId = req.user.id; // Get current user ID
 
@@ -1621,6 +1622,11 @@ const updateCallSessionStudent = async (req, res) => {
                 timestamp: new Date(),
                 author: req.user.name || 'Assistant' // Optional: store name directly for easier display
             });
+        }
+
+        // Update admin comment if provided
+        if (adminComment !== undefined) {
+            student.admin_comment = adminComment !== null && adminComment !== '' ? String(adminComment) : '';
         }
 
         await student.save();

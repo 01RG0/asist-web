@@ -825,7 +825,7 @@ function openEditModal(index) {
         examMarkField.style.display = isMarketing ? 'none' : '';
     }
     if (adminCommentField) {
-        adminCommentField.style.display = isMarketing ? 'block' : 'none';
+        adminCommentField.style.display = '';  // Show for all session types
     }
 
     // Update Status options in modal

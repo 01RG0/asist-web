@@ -561,12 +561,12 @@ function displayStudent(student) {
     // Show optional section only if at least one field has data
     optionalSection.style.display = hasOptionalInfo ? 'block' : 'none';
 
-    // Display admin comment (only for marketing sessions)
+    // Display admin comment (for all session types)
     const adminCommentSection = document.getElementById('admin-comment-section');
     const adminCommentText = document.getElementById('admin-comment-text');
     // sessionType already declared above
     
-    if (sessionType === 'marketing' && student.adminComment && student.adminComment.trim()) {
+    if (student.adminComment && student.adminComment.trim()) {
         adminCommentText.textContent = student.adminComment;
         adminCommentSection.style.display = 'block';
     } else {
